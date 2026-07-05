@@ -1,7 +1,7 @@
 import Foundation
 
-// источник фактов/советов. дальше (P5) появятся Ollama / Claude / RSS / facts-API.
-protocol TipProvider {
+// источник фактов/советов: локальный, Ollama, Claude, facts-API, RSS
+protocol TipProvider: Sendable {
     func nextTip() async throws -> String
 }
 

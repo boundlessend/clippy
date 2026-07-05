@@ -23,6 +23,9 @@ struct ClippyMenu: View {
         Picker("Частота", selection: $settings.intervalMinutes) {
             ForEach(AppSettings.intervalPresets, id: \.self) { Text("\($0) мин").tag($0) }
         }
+        Picker("Источник", selection: $settings.providerKind) {
+            ForEach(ProviderKind.allCases) { Text($0.title).tag($0) }
+        }
         Toggle("Показывать при простое", isOn: $settings.showWhenIdle)
         Toggle("Запускать при входе", isOn: Binding(
             get: { isLoginItemEnabled() },
@@ -38,12 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel?
     private var bubblePanel: NSPanel?
     private var animator: SpriteAnimator?
-    private var provider: TipProvider?
+    private var localProvider: LocalJSONProvider?     // кеш: читает файл один раз
     private var hideWork: DispatchWorkItem?
     private var monitor: ActivityMonitor?
     private var scheduler: Scheduler?
 
-    // ponytail: длительность показа баллона фиксирована; станет настройкой в P4
+    // ponytail: фиксированная длительность показа баллона
     private let bubbleSeconds: Double = 8
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -80,23 +83,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduler.start()
     }
 
-    // показать скрепыша: Show -> idle-петля, затем баллон с советом, затем спрятать
+    // сперва получаем совет, затем показываем скрепыша: без совета не всплываем
     func showClippy() {
         if panel == nil { buildPanel() }
-        guard let panel, let animator, let provider else { return }
-        hideWork?.cancel()
-        positionBottomRight(panel)
-        panel.orderFrontRegardless()
-        animator.play("Show") { [weak animator] in animator?.loop("IdleSideToSide") }
+        guard let panel, let animator else { return }
 
         Task { @MainActor in
+            let tip: String
             do {
-                let tip = try await provider.nextTip()
-                self.showBubble(tip, above: panel)
-                self.scheduleHide(after: self.bubbleSeconds)
+                tip = try await self.provider(for: AppSettings.shared.providerKind).nextTip()
             } catch {
                 NSLog("clippy: tip error \(error)")
+                return
             }
+            self.hideWork?.cancel()
+            positionBottomRight(panel)
+            panel.orderFrontRegardless()
+            animator.play("Show") { [weak animator] in animator?.loop("IdleSideToSide") }
+            self.showBubble(tip, above: panel)
+            self.scheduleHide(after: self.bubbleSeconds)
+        }
+    }
+
+    private func provider(for kind: ProviderKind) throws -> TipProvider {
+        let env = ProcessInfo.processInfo.environment
+        switch kind {
+        case .local:
+            if localProvider == nil { localProvider = try LocalJSONProvider() }
+            return localProvider!
+        case .ollama:
+            let url = URL(string: env["CLIPPY_OLLAMA_URL"] ?? "http://localhost:11434/api/generate")!
+            return OllamaProvider(endpoint: url, model: env["CLIPPY_OLLAMA_MODEL"] ?? "llama3.2")
+        case .claude:
+            return try ClaudeProvider()
+        case .facts:
+            return FactsAPIProvider()
+        case .rss:
+            guard let s = env["CLIPPY_RSS_URL"], let url = URL(string: s) else {
+                throw AssetError.missing("CLIPPY_RSS_URL (env)")
+            }
+            return RSSProvider(feedURL: url)
         }
     }
 
@@ -109,7 +135,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             imageView.imageScaling = .scaleNone
             self.animator = SpriteAnimator(imageView: imageView, sheet: sheet, agent: agent)
             self.panel = makeOverlayPanel(contentView: imageView, size: size)
-            self.provider = try LocalJSONProvider()
         } catch {
             NSLog("clippy: failed to build panel: \(error)")
         }
