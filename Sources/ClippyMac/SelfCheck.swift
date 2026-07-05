@@ -3,7 +3,6 @@ import AppKit
 
 // проверка логики без GUI: парсинг agent.json и кроп каждого кадра.
 // запуск: CLIPPY_SELFTEST=1 swift run
-@MainActor
 func runSelfCheckIfRequested() {
     guard ProcessInfo.processInfo.environment["CLIPPY_SELFTEST"] != nil else { return }
     do {

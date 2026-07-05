@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 
-@main
 struct ClippyMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -61,7 +60,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        runSelfCheckIfRequested()                 // CLIPPY_SELFTEST=1 -> проверка и выход
         NSApp.setActivationPolicy(.accessory)     // agent-приложение, без иконки в доке
         startScheduler()
     }
