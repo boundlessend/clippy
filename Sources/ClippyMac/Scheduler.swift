@@ -10,18 +10,16 @@ func jitteredInterval(baseSeconds: Double, jitterSeconds: Double) -> Double {
 // чтобы разброс менялся раз за разом. показ пропускается, если экран неактивен.
 @MainActor
 final class Scheduler {
-    private let intervalSeconds: Double
-    private let jitterSeconds: Double
     private let firstDelaySeconds: Double
+    private let baseInterval: () -> Double         // читается на каждом тике -> смена частоты на лету
     private let isAllowed: () -> Bool
     private let action: () -> Void
     private var timer: DispatchSourceTimer?
 
-    init(intervalSeconds: Double, jitterSeconds: Double, firstDelaySeconds: Double,
+    init(firstDelaySeconds: Double, baseInterval: @escaping () -> Double,
          isAllowed: @escaping () -> Bool, action: @escaping () -> Void) {
-        self.intervalSeconds = intervalSeconds
-        self.jitterSeconds = jitterSeconds
         self.firstDelaySeconds = firstDelaySeconds
+        self.baseInterval = baseInterval
         self.isAllowed = isAllowed
         self.action = action
     }
@@ -41,7 +39,8 @@ final class Scheduler {
 
     private func fire() {
         if isAllowed() { action() }
-        scheduleNext(after: jitteredInterval(baseSeconds: intervalSeconds,
-                                             jitterSeconds: jitterSeconds))
+        let base = baseInterval()
+        scheduleNext(after: jitteredInterval(baseSeconds: base,
+                                             jitterSeconds: min(60, base * 0.1)))
     }
 }

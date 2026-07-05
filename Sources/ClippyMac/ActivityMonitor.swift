@@ -11,6 +11,18 @@ final class ActivityMonitor {
 
     var isScreenActive: Bool { !screenLocked && !screenAsleep && !screensaverActive }
 
+    // сколько секунд прошло с последнего ввода пользователя (мышь/клавиатура/скролл).
+    // берём минимум по типам событий - это и есть время простоя.
+    var secondsSinceUserInput: Double {
+        let types: [CGEventType] = [
+            .leftMouseDown, .rightMouseDown, .mouseMoved,
+            .keyDown, .scrollWheel, .flagsChanged,
+        ]
+        return types
+            .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
+            .min() ?? .greatestFiniteMagnitude
+    }
+
     init() {
         let dnc = DistributedNotificationCenter.default()
         on(dnc, "com.apple.screenIsLocked") { self.screenLocked = true }

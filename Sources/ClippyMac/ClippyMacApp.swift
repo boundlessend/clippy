@@ -7,10 +7,29 @@ struct ClippyMacApp: App {
 
     var body: some Scene {
         MenuBarExtra("Clippy", systemImage: "paperclip") {
-            Button("Показать сейчас") { delegate.showClippy() }
-            Divider()
-            Button("Выход") { NSApplication.shared.terminate(nil) }
+            ClippyMenu(delegate: delegate)
         }
+    }
+}
+
+struct ClippyMenu: View {
+    let delegate: AppDelegate
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Button("Показать сейчас") { delegate.showClippy() }
+        Divider()
+        Toggle("Включён", isOn: $settings.enabled)
+        Picker("Частота", selection: $settings.intervalMinutes) {
+            ForEach(AppSettings.intervalPresets, id: \.self) { Text("\($0) мин").tag($0) }
+        }
+        Toggle("Показывать при простое", isOn: $settings.showWhenIdle)
+        Toggle("Запускать при входе", isOn: Binding(
+            get: { isLoginItemEnabled() },
+            set: { setLoginItem($0) }
+        ))
+        Divider()
+        Button("Выход") { NSApplication.shared.terminate(nil) }
     }
 }
 
@@ -34,17 +53,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startScheduler() {
-        // env-ручки для отладки; в P4 заменятся настройками в UserDefaults
         let env = ProcessInfo.processInfo.environment
-        let interval = env["CLIPPY_INTERVAL_SEC"].flatMap(Double.init) ?? 600
         let firstDelay = env["CLIPPY_FIRST_DELAY_SEC"].flatMap(Double.init) ?? 30
-        let jitter = min(60, interval * 0.1)
+        let idleThreshold: Double = 120           // не беспокоить, если юзер отошёл дольше
 
         let monitor = ActivityMonitor()
         self.monitor = monitor
         let scheduler = Scheduler(
-            intervalSeconds: interval, jitterSeconds: jitter, firstDelaySeconds: firstDelay,
-            isAllowed: { [weak self] in self?.monitor?.isScreenActive ?? false },
+            firstDelaySeconds: firstDelay,
+            baseInterval: {
+                // CLIPPY_INTERVAL_SEC - отладочный override частоты из настроек
+                if let e = env["CLIPPY_INTERVAL_SEC"].flatMap(Double.init) { return e }
+                return Double(AppSettings.shared.intervalMinutes * 60)
+            },
+            isAllowed: { [weak self] in
+                guard let self, let m = self.monitor else { return false }
+                guard AppSettings.shared.enabled, m.isScreenActive else { return false }
+                if !AppSettings.shared.showWhenIdle && m.secondsSinceUserInput > idleThreshold {
+                    return false
+                }
+                return true
+            },
             action: { [weak self] in self?.showClippy() }
         )
         self.scheduler = scheduler
