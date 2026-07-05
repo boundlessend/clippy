@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/AppIcon.png" width="128" alt="clippy-mac">
+</p>
+
 # clippy-mac
 
 [![CI](https://github.com/boundlessend/clippy-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/boundlessend/clippy-mac/actions/workflows/ci.yml)
