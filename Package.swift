@@ -5,6 +5,10 @@ let package = Package(
     name: "ClippyMac",
     platforms: [.macOS(.v13)],
     targets: [
-        .executableTarget(name: "ClippyMac", path: "Sources/ClippyMac")
+        .executableTarget(
+            name: "ClippyMac",
+            path: "Sources/ClippyMac",
+            resources: [.process("Resources")]
+        )
     ]
 )

@@ -1,10 +1,8 @@
 import AppKit
 
-// P0: пустая прозрачная панель поверх всех окон, не ворующая фокус.
-// содержимое (скрепыш + баллон) заменит заглушку в P1/P2.
+// прозрачная панель поверх всех окон, не ворующая фокус
 @MainActor
-func makeClippyPanel() -> NSPanel {
-    let size = NSSize(width: 200, height: 160)
+func makeClippyPanel(contentView: NSView, size: NSSize) -> NSPanel {
     let panel = NSPanel(
         contentRect: NSRect(origin: .zero, size: size),
         styleMask: [.borderless, .nonactivatingPanel],
@@ -18,14 +16,7 @@ func makeClippyPanel() -> NSPanel {
     panel.hasShadow = false
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
     panel.isMovableByWindowBackground = true
-
-    // ponytail: жёлтая плашка-заглушка вместо скрепыша, чтобы видеть панель в P0
-    let placeholder = NSView(frame: NSRect(origin: .zero, size: size))
-    placeholder.wantsLayer = true
-    placeholder.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.85).cgColor
-    placeholder.layer?.cornerRadius = 16
-    panel.contentView = placeholder
-
+    panel.contentView = contentView
     return panel
 }
 
