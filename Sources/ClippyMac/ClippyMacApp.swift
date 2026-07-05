@@ -18,14 +18,19 @@ struct ClippyMenu: View {
 
     var body: some View {
         Button("Показать сейчас") { delegate.showClippy() }
+        Button("Проиграть жест") { delegate.playGesture() }
         Divider()
         Toggle("Включён", isOn: $settings.enabled)
         Picker("Частота", selection: $settings.intervalMinutes) {
             ForEach(AppSettings.intervalPresets, id: \.self) { Text("\($0) мин").tag($0) }
         }
+        Picker("Размер", selection: $settings.scale) {
+            ForEach(AppSettings.scalePresets, id: \.self) { Text(String(format: "×%g", $0)).tag($0) }
+        }
         Picker("Источник", selection: $settings.providerKind) {
             ForEach(ProviderKind.allCases) { Text($0.title).tag($0) }
         }
+        Toggle("Звук", isOn: Binding(get: { !settings.muted }, set: { settings.muted = !$0 }))
         Toggle("Показывать при простое", isOn: $settings.showWhenIdle)
         Toggle("Запускать при входе", isOn: Binding(
             get: { isLoginItemEnabled() },
@@ -45,9 +50,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hideWork: DispatchWorkItem?
     private var monitor: ActivityMonitor?
     private var scheduler: Scheduler?
+    private var builtScale: Double = 0                // масштаб, с которым построена панель
 
     // ponytail: фиксированная длительность показа баллона
     private let bubbleSeconds: Double = 8
+
+    private static let gestures = [
+        "Wave", "Congratulate", "GetAttention", "Alert",
+        "CheckingSomething", "Explain", "Processing", "Thinking", "Searching",
+    ]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         runSelfCheckIfRequested()                 // CLIPPY_SELFTEST=1 -> проверка и выход
@@ -72,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isAllowed: { [weak self] in
                 guard let self, let m = self.monitor else { return false }
                 guard AppSettings.shared.enabled, m.isScreenActive else { return false }
+                if AppSettings.shared.snoozeUntil > Date().timeIntervalSince1970 { return false }
                 if !AppSettings.shared.showWhenIdle && m.secondsSinceUserInput > idleThreshold {
                     return false
                 }
@@ -85,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // сперва получаем совет, затем показываем скрепыша: без совета не всплываем
     func showClippy() {
-        if panel == nil { buildPanel() }
+        if panel == nil || builtScale != AppSettings.shared.scale { rebuildPanel() }
         guard let panel, let animator else { return }
 
         Task { @MainActor in
@@ -97,12 +109,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             self.hideWork?.cancel()
-            positionBottomRight(panel)
+            self.positionPanel(panel)
             panel.orderFrontRegardless()
-            animator.play("Show") { [weak animator] in animator?.loop("IdleSideToSide") }
+            animator.play("Show") { [weak animator] in animator?.loopIdle() }
             self.showBubble(tip, above: panel)
             self.scheduleHide(after: self.bubbleSeconds)
         }
+    }
+
+    // проиграть случайный жест (если скрепыш скрыт - сперва показать с советом)
+    func playGesture() {
+        guard let panel, panel.isVisible, let animator else { showClippy(); return }
+        hideWork?.cancel()
+        let gesture = Self.gestures.randomElement() ?? "Wave"
+        animator.play(gesture) { [weak animator] in animator?.loopIdle() }
+        scheduleHide(after: bubbleSeconds)
     }
 
     private func provider(for kind: ProviderKind) throws -> TipProvider {
@@ -126,18 +147,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func rebuildPanel() {
+        panel?.orderOut(nil)
+        panel = nil
+        animator = nil
+        buildPanel()
+    }
+
     private func buildPanel() {
         do {
             let agent = try loadClippyAgent()
             let sheet = try loadSpriteSheet()
-            let size = agent.frameSize
-            let imageView = NSImageView(frame: NSRect(origin: .zero, size: size))
-            imageView.imageScaling = .scaleNone
+            let scale = AppSettings.shared.scale
+            let base = agent.frameSize
+            let size = NSSize(width: base.width * scale, height: base.height * scale)
+
+            let imageView = ClippyImageView(frame: NSRect(origin: .zero, size: size))
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.onClick = { [weak self] in self?.playGesture() }
+            imageView.menu = makeContextMenu()
+
             self.animator = SpriteAnimator(imageView: imageView, sheet: sheet, agent: agent)
-            self.panel = makeOverlayPanel(contentView: imageView, size: size)
+            let p = makeOverlayPanel(contentView: imageView, size: size)
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didMoveNotification, object: p, queue: .main
+            ) { [weak p] _ in
+                MainActor.assumeIsolated { if let p { AppSettings.shared.position = p.frame.origin } }
+            }
+            self.panel = p
+            self.builtScale = scale
         } catch {
             NSLog("clippy: failed to build panel: \(error)")
         }
+    }
+
+    private func positionPanel(_ panel: NSPanel) {
+        if let pos = AppSettings.shared.position {
+            panel.setFrameOrigin(pos)
+        } else {
+            positionBottomRight(panel)
+        }
+    }
+
+    private func makeContextMenu() -> NSMenu {
+        let m = NSMenu()
+        m.addItem(withTitle: "Следующий совет", action: #selector(ctxNextTip), keyEquivalent: "")
+        m.addItem(withTitle: "Проиграть жест", action: #selector(ctxGesture), keyEquivalent: "")
+        m.addItem(.separator())
+        m.addItem(withTitle: "Спрятать", action: #selector(ctxHide), keyEquivalent: "")
+        m.addItem(withTitle: "Заткнуть на час", action: #selector(ctxSnooze), keyEquivalent: "")
+        m.items.forEach { $0.target = self }
+        return m
+    }
+
+    @objc private func ctxNextTip() { showClippy() }
+    @objc private func ctxGesture() { playGesture() }
+    @objc private func ctxHide() { hideClippy() }
+    @objc private func ctxSnooze() {
+        AppSettings.shared.snoozeUntil = Date().timeIntervalSince1970 + 3600
+        hideClippy()
     }
 
     private func showBubble(_ text: String, above clippyPanel: NSPanel) {

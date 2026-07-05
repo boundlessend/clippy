@@ -21,6 +21,7 @@ struct Frame: Decodable {
     let images: [[Int]]?                 // слои [[x,y]]; nil = пустой кадр
     let exitBranch: Int?
     let branching: Branching?
+    let sound: String?                   // ключ звука в sounds (1..15)
 }
 
 struct Branching: Decodable {

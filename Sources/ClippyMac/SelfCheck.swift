@@ -40,9 +40,35 @@ func runSelfCheckIfRequested() {
             precondition(v >= 540 && v <= 660 && v >= 1, "jitter out of range: \(v)")
         }
 
+        // branching/exitBranch: все целевые индексы в границах своей анимации
+        var soundKeys = Set<String>()
+        for (name, anim) in agent.animations {
+            let n = anim.frames.count
+            for f in anim.frames {
+                for br in f.branching?.branches ?? [] {
+                    precondition(br.frameIndex >= 0 && br.frameIndex < n,
+                                 "branch index out of range in \(name)")
+                }
+                if let e = f.exitBranch {
+                    precondition(e >= 0 && e < n, "exitBranch out of range in \(name)")
+                }
+                if let s = f.sound { soundKeys.insert(s) }
+            }
+            if n > 0 {
+                let ni = nextFrameIndex(current: 0, frames: anim.frames)
+                precondition(ni >= 0 && ni <= n, "next index invalid in \(name)")
+            }
+        }
+        // звуки: каждый ключ из кадров есть в бандле
+        for key in soundKeys {
+            precondition(
+                Bundle.module.url(forResource: key, withExtension: "mp3") != nil,
+                "missing sound \(key).mp3")
+        }
+
         print("selftest ok: \(agent.animations.count) animations, "
               + "\(cropped) frames cropped, sheet \(sheet.width)x\(sheet.height), "
-              + "\(tips.count) tips")
+              + "\(tips.count) tips, \(soundKeys.count) sounds")
         exit(0)
     } catch {
         FileHandle.standardError.write(Data("selftest failed: \(error)\n".utf8))
