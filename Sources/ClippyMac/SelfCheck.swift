@@ -26,8 +26,17 @@ func runSelfCheckIfRequested() {
                 break                                  // хватит первого непустого кадра
             }
         }
+        // контент: tips.json грузится, непустой, и провайдер инициализируется
+        guard let turl = Bundle.module.url(forResource: "tips", withExtension: "json") else {
+            fatalError("tips.json missing")
+        }
+        let tips = try JSONDecoder().decode([String].self, from: Data(contentsOf: turl))
+        precondition(!tips.isEmpty && tips.allSatisfy { !$0.isEmpty }, "tips must be non-empty")
+        _ = try LocalJSONProvider()
+
         print("selftest ok: \(agent.animations.count) animations, "
-              + "\(cropped) frames cropped, sheet \(sheet.width)x\(sheet.height)")
+              + "\(cropped) frames cropped, sheet \(sheet.width)x\(sheet.height), "
+              + "\(tips.count) tips")
         exit(0)
     } catch {
         FileHandle.standardError.write(Data("selftest failed: \(error)\n".utf8))

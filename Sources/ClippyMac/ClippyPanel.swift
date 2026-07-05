@@ -1,8 +1,8 @@
 import AppKit
 
-// прозрачная панель поверх всех окон, не ворующая фокус
+// прозрачная панель поверх всех окон, не ворующая фокус (скрепыш и баллон)
 @MainActor
-func makeClippyPanel(contentView: NSView, size: NSSize) -> NSPanel {
+func makeOverlayPanel(contentView: NSView, size: NSSize) -> NSPanel {
     let panel = NSPanel(
         contentRect: NSRect(origin: .zero, size: size),
         styleMask: [.borderless, .nonactivatingPanel],
