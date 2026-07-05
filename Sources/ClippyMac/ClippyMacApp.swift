@@ -21,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animator: SpriteAnimator?
     private var provider: TipProvider?
     private var hideWork: DispatchWorkItem?
+    private var monitor: ActivityMonitor?
+    private var scheduler: Scheduler?
 
     // ponytail: длительность показа баллона фиксирована; станет настройкой в P4
     private let bubbleSeconds: Double = 8
@@ -28,6 +30,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         runSelfCheckIfRequested()                 // CLIPPY_SELFTEST=1 -> проверка и выход
         NSApp.setActivationPolicy(.accessory)     // agent-приложение, без иконки в доке
+        startScheduler()
+    }
+
+    private func startScheduler() {
+        // env-ручки для отладки; в P4 заменятся настройками в UserDefaults
+        let env = ProcessInfo.processInfo.environment
+        let interval = env["CLIPPY_INTERVAL_SEC"].flatMap(Double.init) ?? 600
+        let firstDelay = env["CLIPPY_FIRST_DELAY_SEC"].flatMap(Double.init) ?? 30
+        let jitter = min(60, interval * 0.1)
+
+        let monitor = ActivityMonitor()
+        self.monitor = monitor
+        let scheduler = Scheduler(
+            intervalSeconds: interval, jitterSeconds: jitter, firstDelaySeconds: firstDelay,
+            isAllowed: { [weak self] in self?.monitor?.isScreenActive ?? false },
+            action: { [weak self] in self?.showClippy() }
+        )
+        self.scheduler = scheduler
+        scheduler.start()
     }
 
     // показать скрепыша: Show -> idle-петля, затем баллон с советом, затем спрятать

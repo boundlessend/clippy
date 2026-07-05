@@ -34,6 +34,12 @@ func runSelfCheckIfRequested() {
         precondition(!tips.isEmpty && tips.allSatisfy { !$0.isEmpty }, "tips must be non-empty")
         _ = try LocalJSONProvider()
 
+        // планировщик: разброс не выходит за границы и не короче 1 с
+        for _ in 0..<1000 {
+            let v = jitteredInterval(baseSeconds: 600, jitterSeconds: 60)
+            precondition(v >= 540 && v <= 660 && v >= 1, "jitter out of range: \(v)")
+        }
+
         print("selftest ok: \(agent.animations.count) animations, "
               + "\(cropped) frames cropped, sheet \(sheet.width)x\(sheet.height), "
               + "\(tips.count) tips")
