@@ -1,8 +1,8 @@
 # Скрепыш для macOS (clippy-mac)
 
-возрождение легендарного Clippy/Clippit: раз в ~10 минут при активном экране
-скрепыш выныривает в углу, проигрывает анимацию и показывает в речевом баллоне
-случайный факт или совет.
+возрождение легендарного Clippy/Clippit: персонаж живёт в доке анимированной
+иконкой, а по левому клику рядом с иконкой всплывает речевой баллон со случайным
+фактом или советом. Правый клик по доку - меню (факт / настройки / о программе).
 
 ## зафиксированные решения
 
@@ -19,22 +19,21 @@
 провайдеры контента) - как того требует стиль проекта.
 
 ```
-NSStatusItem (скрепыш в трее) + AppDelegate (чистый AppKit, точка входа в main.swift)
-   ├─ NSMenu: Показать сейчас / Проиграть жест / Настройки… / О программе / Выход
-   ├─ Настройки… -> NSWindow(NSHostingController(SettingsRootView: SwiftUI Form)
+AppDelegate (чистый AppKit, точка входа в main.swift)
+   ├─ NSApp.dockTile.contentView = NSImageView  <- анимированный персонаж в доке
+   │     └─ SpriteAnimator (бесконечный idle) -> dockTile.display() каждый кадр
+   ├─ applicationShouldHandleReopen (левый клик по доку) -> showFact у иконки
+   ├─ applicationDockMenu (правый клик) -> Показать факт / Настройки… / О программе
+   ├─ NSStatusItem (опция, по умолчанию выкл) -> то же меню, если док скрыт
+   ├─ Настройки… -> NSWindow(NSHostingController(SettingsRootView: SwiftUI Form))
    ├─ О программе -> orderFrontStandardAboutPanel (версия из Info.plist)
    └─ активити-полиси: .regular (иконка в доке) / .accessory (только трей)
       │
-   Scheduler (Timer 10 мин + джиттер)
-      │  спрашивает ActivityMonitor: экран активен?
+   showFact: TipProvider.nextTip() -> облачко у дока
       ▼
-   ActivityMonitor  ──> lock/unlock, sleep/wake, screensaver, idle
-      │  да -> показать
-      ▼
-   ClippyPanel (NSPanel: borderless, прозрачный, поверх всех, не ворует фокус)
-      └─ NSHostingView(ClippyView)
-             ├─ SpriteAnimator  ──> проигрывает кадры из спрайтшита
-             └─ SpeechBubbleView ──> текст от TipProvider
+   bubble (NSPanel: borderless, прозрачный, поверх всех, не ворует фокус)
+      └─ NSHostingView(SpeechBubbleView)  <- хвостик в сторону дока
+             позиция: bubbleOrigin(anchor, dockOrientation) - низ/слева/справа
                                           │
                                     TipProvider (protocol)
                                     ├─ LocalJSONProvider   (старт)
@@ -55,15 +54,19 @@ NSStatusItem (скрепыш в трее) + AppDelegate (чистый AppKit, т
 чтобы на старте не мигала иконка дока. SwiftUI остаётся только для контента окон
 (`SettingsRootView`, баллон) через `NSHostingController`/`NSHostingView`.
 
-**2. Окно скрепыша - `NSPanel`.**
-- стиль `[.borderless, .nonactivatingPanel]`, `isFloatingPanel = true`
-- `backgroundColor = .clear`, `isOpaque = false`, `hasShadow = false`
-- `level = .floating` (поверх обычных окон)
-- `collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]`
-  - появляется на всех Spaces и поверх фуллскрин-приложений
-- показ через `orderFrontRegardless()` (не `makeKey...`) - не крадёт фокус
-- позиция: правый нижний угол `screen.visibleFrame`; перетаскивание мышью
-  запоминается в настройках
+**2. Персонаж в доке + облачко-`NSPanel`.**
+- персонаж: `NSApp.dockTile.contentView = NSImageView`, `SpriteAnimator` крутит
+  бесконечный idle и на каждый кадр зовёт `NSApp.dockTile.display()`
+- левый клик по доку -> `applicationShouldHandleReopen` (когда нет видимых окон);
+  якорь облачка - `NSEvent.mouseLocation` (курсор в этот миг на иконке дока)
+- правый клик -> `applicationDockMenu` (Показать факт / Настройки… / О программе;
+  Quit док добавляет сам)
+- облачко - отдельный `NSPanel` `[.borderless, .nonactivatingPanel]`, `.floating`,
+  `.clear`, `.canJoinAllSpaces/.fullScreenAuxiliary`, `orderFrontRegardless()` -
+  не крадёт фокус
+- позиция облачка: `bubbleOrigin(anchor, dockOrientation)` - док внизу -> выше
+  иконки, слева -> правее, справа -> левее; кламп в `visibleFrame`. Ориентация
+  дока из `com.apple.dock` (`orientation`). Хвостик баллона смотрит в сторону дока
 
 **3. Спрайт-плеер (`SpriteAnimator` + `ClippyAgent`).**
 - формат ClippyJS: `map.png` (спрайтшит) + `agent.js` с описанием `framesize`,
@@ -81,35 +84,27 @@ NSStatusItem (скрепыш в трее) + AppDelegate (чистый AppKit, т
   выглядит мёртвым`
 
 **4. Речевой баллон (`SpeechBubbleView`).** чистый SwiftUI: скруглённый
-прямоугольник + хвостик через `Path`, авто-размер под текст, без ассетов.
-Висит N секунд или до клика, затем скрепыш прячется.
+прямоугольник + хвостик через `Path`, авто-размер под текст (`.fixedSize()`, иначе
+`NSHostingView.fittingSize` растягивает панель во весь экран), без ассетов. Хвостик
+рисуется на стороне, обращённой к доку (низ/лево/право). Висит `bubbleSeconds` и
+прячется.
 
-**5. Детект "активного экрана" (`ActivityMonitor`).** не показывать, когда юзера
-нет:
-- lock/unlock: `DistributedNotificationCenter` -> `com.apple.screenIsLocked` /
-  `com.apple.screenIsUnlocked`
-- сон/пробуждение дисплея: `NSWorkspace.screensDidSleepNotification` /
-  `screensDidWakeNotification`
-- скринсейвер: distributed `com.apple.screensaver.didstart` / `.didstop`
-- простой: `CGEventSource.secondsSinceLastEventType` (any input) - опционально
-  не показывать, если юзер отошёл дольше порога
-- правило показа: экран разблокирован И дисплей не спит И (опц.) idle < порога
+**5. Показ факта - только по клику.** периодического таймера и детекта активности
+больше нет (персонаж и так всегда виден в доке). Факт всплывает по левому клику по
+иконке дока или из меню (дока/трея). `ActivityMonitor` и `Scheduler` удалены.
 
-**6. Планировщик (`Scheduler`).** `Timer` на 600 с + случайный джиттер
-(±60 с), чтобы не ровно по часам. При заблокированном/спящем экране показ
-пропускаем (следующий тик). Первый показ - с небольшой задержкой после старта.
+**6. Показ персонажа - всегда в доке.** пока приложение запущено (`.regular`),
+`SpriteAnimator` крутит idle в `dockTile`. Отдельного окна на рабочем столе и
+ходьбы по экрану нет (убрано в доковом редизайне).
 
-**7. Настройки (`AppSettings`).** обёртка над `UserDefaults`: частотность показа,
-вкл/выкл, провайдер, масштаб, звук, показ при простое, позиция окна, snooze,
-`showInMenuBar` / `showInDock`. Управление - в окне настроек
-(`SettingsRootView`: SwiftUI `Form` в `NSWindow`), открывается из меню трея
-(«Настройки…»), из меню приложения / Cmd+, (режим дока) и при повторном запуске,
-если скрыты обе поверхности.
-- **частотность:** пресеты 5 / 10 / 15 / 30 / 60 мин, хранится как
-  `intervalMinutes: Int`, применяется на лету (перезапуск `Scheduler`)
-- **где показывать:** `showInMenuBar` / `showInDock` (по умолчанию обе). Скрыть
-  можно каждую; если скрыты обе - окно настроек открывается при запуске уже
-  запущенного приложения (reopen) и на старте
+**7. Настройки (`AppSettings`).** обёртка над `UserDefaults`: вкл/выкл, провайдер +
+его поля, звук, категории фактов, активный персонаж, `showInMenuBar` (по умолчанию
+выкл) / `showInDock` (по умолчанию вкл). Управление - в окне настроек
+(`SettingsRootView`: SwiftUI `Form` в `NSWindow`), открывается из меню дока/трея
+(«Настройки…»), из меню приложения / Cmd+, и при старте, если скрыты обе поверхности.
+- **где показывать:** `showInMenuBar` / `showInDock`. Иконка в доке - основная
+  (там анимация); меню-бар - опциональный фолбэк, если док скрыт. Если скрыты обе -
+  окно настроек открывается на старте и при reopen
 - **версия:** `CFBundleShortVersionString` из Info.plist (правится через `VERSION`
   в `build-dmg.sh`), показывается в панели «О программе»
 
@@ -146,14 +141,11 @@ clippy-mac/
   assets/AppIcon.png .icns         # иконка приложения
   Sources/ClippyMac/
     main.swift                     # точка входа: self-check, затем NSApplication+AppDelegate
-    ClippyMacApp.swift             # AppDelegate + NSStatusItem/меню/About + ClippyControls/SettingsRootView
-    ClippyPanel.swift              # конфиг NSPanel (overlay)
-    ClippyImageView.swift          # NSImageView: клик/перетаскивание/контекстное меню
-    SpriteAnimator.swift           # плеер кадров + branching + звук
-    ClippyAgent.swift              # модели + парсинг clippy_agent.json + кроп кадра
-    SpeechBubbleView.swift         # SwiftUI баллон
-    ActivityMonitor.swift          # lock/sleep/screensaver/idle
-    Scheduler.swift                # таймер + джиттер
+    ClippyMacApp.swift             # AppDelegate (док-иконка/клик/меню/About) + ClippyControls/SettingsRootView
+    ClippyPanel.swift              # конфиг NSPanel облачка + доковая геометрия (ориентация, bubbleOrigin)
+    SpriteAnimator.swift           # плеер кадров + branching + звук + композит оверлеев + onRender
+    ClippyAgent.swift              # модели + парсинг agent.json (бандл/папка) + кроп кадра
+    SpeechBubbleView.swift         # SwiftUI баллон с хвостиком в сторону дока
     Settings.swift                 # AppSettings над UserDefaults
     AgentLibrary.swift             # обнаружение персонажей (встроенный + папка Agents)
     TipProvider.swift              # protocol + LocalJSONProvider
@@ -301,10 +293,8 @@ clippy-mac/
   Microsoft Agent) не брали: ClippyJS-персонажи уже в нужном формате, под MIT, и
   конвертер тестируем сразу. Рендер научился складывать несколько оверлеев кадра
   (`overlayCount>1`, как у Merlin) - раньше брался только первый слой
-- ~~**11** MoveTo / GestureAt~~ сделано: «Прогуляться» (меню трея/контекст/настройки).
-  Move-анимаций у спрайтшита нет, поэтому скольжение окном + `Look*` в сторону хода,
-  по прибытии `Gesture*` в центр экрана. Направление - pure `directionalAnimation`,
-  цель - pure `randomWalkOrigin` (обе в self-check)
+- ~~**11** MoveTo / GestureAt («Прогуляться»)~~ убрано в доковом редизайне: персонаж
+  теперь живёт в доке, плавающего окна и ходьбы по экрану нет
 - другие персонажи (Merlin, Links) - частично закрывается пунктом 9
 
 прочее отложенное:
@@ -319,13 +309,18 @@ clippy-mac/
   с дисклеймером или скачивать скриптом при сборке (сейчас лежат в репо, для
   личного использования)
 
-сделано после MVP: окно настроек (AppKit `NSWindow` + SwiftUI `Form`), нативное
-меню трея на `NSStatusItem`, панель «О программе» с версией, видимость
-дока/трея, версионирование `1.0.0`; свой интервал (степпер, минуты); поля
-провайдеров в окне настроек (Ollama URL/модель, RSS, ключ Claude - в Keychain);
-фолбэк-цепочка провайдеров (выбранный -> локальный); категории локальных фактов
-(6 тем, тумблеры, фильтр в `LocalJSONProvider`, `tips.json` по категориям);
-двуязычный README (`README.md` EN + `README.ru.md` RU) по образцу других репо.
+сделано после MVP: окно настроек (AppKit `NSWindow` + SwiftUI `Form`), панель
+«О программе» с версией, версионирование `1.0.0`; поля провайдеров в окне настроек
+(Ollama URL/модель, RSS, ключ Claude - в Keychain); фолбэк-цепочка провайдеров
+(выбранный -> локальный); категории локальных фактов (6 тем, тумблеры, фильтр в
+`LocalJSONProvider`, `tips.json` по категориям); двуязычный README; импорт
+персонажей ClippyJS + композит оверлеев.
+
+**доковый редизайн (последнее):** персонаж - анимированная иконка в доке
+(`dockTile`), факт по левому клику всплывает облачком у иконки с учётом стороны
+дока (низ/лево/право, хвостик к доку), правый клик - меню дока. Убраны: плановый
+таймер/частота/snooze, `ActivityMonitor`, `Scheduler`, плавающее окно персонажа,
+ходьба, масштаб. Меню-бар стал опциональным (по умолчанию выкл).
 
 ## иконка
 
@@ -341,9 +336,9 @@ clippy-mac/
 
 ## следующий шаг
 
-MVP (P0-P5), оживление (P6), публикация, иконка, UI (меню/окно настроек/About/
-версия), 598 локальных фактов по категориям, свой интервал, поля провайдеров +
-фолбэк, двуязычный README, ходьба по экрану («Прогуляться»), кастомные персонажи
-из папки Agents, импорт персонажей ClippyJS - готовы. Весь бэклог фич закрыт.
-Осталось только про публикацию (проект «только для себя», поэтому отложено):
-подпись Developer ID + нотаризация, решение по ассетам Microsoft.
+MVP, UI (окно настроек/About/версия), 598 локальных фактов по категориям, поля
+провайдеров + фолбэк, двуязычный README, кастомные персонажи из папки Agents,
+импорт персонажей ClippyJS, доковый редизайн (анимация в доке + факт по клику у
+дока) - готовы. Весь бэклог фич закрыт. Осталось только про публикацию (проект
+«только для себя», поэтому отложено): подпись Developer ID + нотаризация, решение
+по ассетам Microsoft.

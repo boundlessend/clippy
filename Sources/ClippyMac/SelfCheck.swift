@@ -36,31 +36,19 @@ func runSelfCheckIfRequested() {
                      "tips.json missing a category")
         _ = try LocalJSONProvider(enabled: AppSettings.allCategoryKeys)
 
-        // прогулка: направленные анимации выбираются верно и существуют в агенте
-        let o = NSPoint.zero
-        let dirs: [(NSPoint, String, String)] = [
-            (NSPoint(x: 100, y: 0), "GestureRight", "LookRight"),
-            (NSPoint(x: -100, y: 0), "GestureLeft", "LookLeft"),
-            (NSPoint(x: 0, y: 100), "GestureUp", "LookUp"),
-            (NSPoint(x: 0, y: -100), "GestureDown", "LookDown"),
-        ]
-        for (to, gesture, look) in dirs {
-            precondition(directionalAnimation(prefix: "Gesture", from: o, to: to) == gesture,
-                         "wrong gesture for \(to)")
-            precondition(directionalAnimation(prefix: "Look", from: o, to: to) == look,
-                         "wrong look for \(to)")
-            precondition(agent.animations[gesture] != nil && agent.animations[look] != nil,
-                         "missing directional animation \(gesture)/\(look)")
-        }
-        // цель прогулки всегда внутри видимой области
+        // облачко у дока: origin всегда внутри экрана и с нужной стороны от иконки
         let vf = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let psize = NSSize(width: 120, height: 90)
-        for _ in 0..<1000 {
-            let p = randomWalkOrigin(in: vf, panelSize: psize, margin: 24)
-            precondition(p.x >= vf.minX + 24 && p.x <= vf.maxX - psize.width - 24
-                         && p.y >= vf.minY + 24 && p.y <= vf.maxY - psize.height - 24,
-                         "walk target out of bounds: \(p)")
+        let bsize = NSSize(width: 200, height: 60)
+        let anchor = NSPoint(x: 700, y: 40)
+        for orient in [DockOrientation.bottom, .left, .right] {
+            let p = bubbleOrigin(anchor: anchor, orientation: orient, bubbleSize: bsize, screen: vf)
+            precondition(p.x >= vf.minX + 4 && p.x <= vf.maxX - bsize.width - 4
+                         && p.y >= vf.minY + 4 && p.y <= vf.maxY - bsize.height - 4,
+                         "bubble out of bounds for \(orient)")
         }
+        precondition(bubbleOrigin(anchor: anchor, orientation: .bottom,
+                                  bubbleSize: bsize, screen: vf).y >= anchor.y,
+                     "bottom-dock bubble must sit above the click")
 
         // библиотека персонажей: встроенный Clippy всегда доступен и грузится как из папки=nil
         let agents = discoverAgents()
@@ -72,12 +60,6 @@ func runSelfCheckIfRequested() {
         guard let micon = Bundle.module.url(forResource: "menubar", withExtension: "png"),
               NSImage(contentsOf: micon) != nil else {
             fatalError("menubar.png missing or unreadable")
-        }
-
-        // планировщик: разброс не выходит за границы и не короче 1 с
-        for _ in 0..<1000 {
-            let v = jitteredInterval(baseSeconds: 600, jitterSeconds: 60)
-            precondition(v >= 540 && v <= 660 && v >= 1, "jitter out of range: \(v)")
         }
 
         // branching/exitBranch: все целевые индексы в границах своей анимации

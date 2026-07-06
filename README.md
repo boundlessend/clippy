@@ -19,24 +19,19 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2563eb">
 </p>
 
-`Clippy` is a small macOS app that brings back the legendary assistant. Every so often, while your screen is active, Clippy pops up in a corner, plays an animation, and shows a fact or a tip in a speech bubble. Native Swift, menu bar agent, zero dependencies.
+`Clippy` is a small macOS app that brings back the legendary assistant. Your character lives in the Dock as an animated icon; left-click it and a fact pops up in a speech bubble right next to it. Native Swift, zero dependencies.
 
 ## Features
 
-- **menu bar agent** - Clippy himself as the tray icon; a click opens a menu (Show now / Play gesture / Settings… / About / Quit), and Settings… opens a window.
-- **where to show** - menu bar and/or a Dock icon (both by default). Hide either; if both are hidden, the settings window opens when you launch the already-running app.
-- **the assistant** - a transparent panel above all windows and Spaces that never steals focus.
-- **living idle** - probabilistic frame transitions (branching) and random idle gestures.
-- **interaction** - left click = a fresh tip with a gesture, right click = menu, drag with the mouse; the position is remembered.
-- **frequency** - any number of minutes, applied on the fly.
-- **activity detection** - never shows on a locked or sleeping screen, or while you are away.
-- **size** - Clippy scale from ×0.5 to ×2.
-- **sound** - the original animation voices (off by default).
-- **snooze** - "mute for an hour" from the context menu.
-- **autostart** - at login (LaunchAgent).
+- **animated Dock icon** - while the app runs, your chosen character animates right in the Dock (idle gestures, branching frames).
+- **a fact on click** - left-click the Dock icon and a fresh tip appears in a speech bubble beside it.
+- **Dock-aware bubble** - the bubble sits next to the icon and its tail points at the Dock, wherever the Dock is (bottom / left / right).
+- **Dock menu** - right-click the Dock icon: Show a fact / Settings… / About.
+- **characters** - built-in Clippy plus custom characters dropped into the `Agents` folder (each a subfolder with `agent.json` + `map.png`); switch in Settings. Multi-layer sprites are composited, so full Microsoft Agent characters render correctly.
 - **content** - ~600 built-in lines in Clippy's own voice, filterable by category, plus Ollama / Claude / RSS / facts-API providers with an automatic fallback to local.
-- **walk** - from the menu, Clippy strolls to a random spot on screen and gestures.
-- **characters** - built-in Clippy plus custom characters dropped into the `Agents` folder (each a subfolder with `agent.json` + `map.png`); switch in Settings.
+- **sound** - the original animation voices (off by default).
+- **menu bar (optional)** - an optional tray icon with the same menu, off by default, in case the Dock is hidden.
+- **autostart** - at login (LaunchAgent).
 - **about** - a panel with the app version.
 
 ## Installation

@@ -7,20 +7,10 @@ struct ClippyControls: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        Button("Показать сейчас") { delegate.showClippy() }
-        Button("Проиграть жест") { delegate.playGesture() }
-        Button("Прогуляться") { delegate.walk() }
+        Button("Показать факт") { delegate.showFact(at: nil) }
         Divider()
         Toggle("Включён", isOn: $settings.enabled)
-        // частота: произвольное число минут
-        Stepper(value: $settings.intervalMinutes, in: 1...1440) {
-            Text("Частота: \(settings.intervalMinutes) мин")
-        }
-        Picker("Размер", selection: $settings.scale) {
-            ForEach(AppSettings.scalePresets, id: \.self) { Text(String(format: "×%g", $0)).tag($0) }
-        }
         Toggle("Звук", isOn: Binding(get: { !settings.muted }, set: { settings.muted = !$0 }))
-        Toggle("Показывать при простое", isOn: $settings.showWhenIdle)
         Toggle("Запускать при входе", isOn: Binding(
             get: { isLoginItemEnabled() },
             set: { setLoginItem($0) }
@@ -37,15 +27,15 @@ struct ClippyControls: View {
         Picker("Персонаж", selection: $settings.activeAgent) {
             ForEach(delegate.availableAgents) { Text($0.name).tag($0.name) }
         }
-        .onChange(of: settings.activeAgent) { _ in delegate.showClippy() }
+        .onChange(of: settings.activeAgent) { _ in delegate.applyAgentChange() }
         HStack {
             Button("Папка персонажей") { delegate.showAgentsFolder() }
             Button("Обновить список") { delegate.reloadAgents() }
         }
         Divider()
-        Toggle("Показывать в меню-баре", isOn: $settings.showInMenuBar)
+        Toggle("Иконка в меню-баре", isOn: $settings.showInMenuBar)
             .onChange(of: settings.showInMenuBar) { _ in delegate.updateStatusItem() }
-        Toggle("Показывать в доке", isOn: $settings.showInDock)
+        Toggle("Иконка в доке", isOn: $settings.showInDock)
             .onChange(of: settings.showInDock) { _ in applyActivationPolicy() }
         Divider()
         Button("Выход") { NSApplication.shared.terminate(nil) }
@@ -99,19 +89,15 @@ struct SettingsRootView: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @Published private(set) var availableAgents: [AgentRef] = []   // встроенный + из папки
-    private var panel: NSPanel?
-    private var bubblePanel: NSPanel?
+    private var dockView: NSImageView?                // куда рисует аниматор (иконка в доке)
     private var animator: SpriteAnimator?
+    private var bubblePanel: NSPanel?                 // облачко с фактом у дока
     private var localProvider: LocalJSONProvider?     // кеш: читает файл один раз
     private var hideWork: DispatchWorkItem?
-    private var monitor: ActivityMonitor?
-    private var scheduler: Scheduler?
-    private var builtScale: Double = 0                // масштаб, с которым построена панель
-    private var builtAgent: String = ""               // имя персонажа, с которым построена панель
+    private var builtAgent: String = ""               // имя персонажа, с которым построен аниматор
     private var builtCategories: Set<String> = []     // категории, с которыми построен localProvider
     private var settingsWindow: NSWindow?
     private var statusItem: NSStatusItem?
-    private var walkToken = 0                          // растёт при новой прогулке/скрытии, гасит старую
 
     // сам скрепыш (с иконки, без фона) для меню-бара; фолбэк - SF-скрепка
     private static let menuBarImage: NSImage = {
@@ -139,19 +125,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         reloadAgents()                            // список персонажей (встроенный + из папки)
-        NSApp.mainMenu = makeMainMenu()           // меню приложения (док-режим, Cmd+,, Cmd+Q)
+        NSApp.mainMenu = makeMainMenu()           // меню приложения (Cmd+,, Cmd+Q)
         applyActivationPolicy()                   // док/трей - по настройкам
         updateStatusItem()                        // иконка в баре по настройке
-        startScheduler()
+        setupDock()                               // анимированный персонаж в доке
         // если и трей, и док скрыты - показываем окно, иначе в настройки не зайти
         let s = AppSettings.shared
         if !s.showInMenuBar && !s.showInDock { showSettings() }
     }
 
-    // клик по иконке в доке (нет открытых окон) - открыть настройки
+    // левый клик по иконке в доке: показать факт (или сфокусировать открытые настройки)
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if !hasVisibleWindows { showSettings() }
+        if let w = settingsWindow, w.isVisible {
+            w.makeKeyAndOrderFront(nil)
+        } else {
+            showFact(at: NSEvent.mouseLocation)   // курсор сейчас на иконке в доке
+        }
         return true
+    }
+
+    // правый клик по иконке в доке: меню (Quit док добавляет сам)
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let m = NSMenu()
+        m.addItem(withTitle: "Показать факт", action: #selector(miFact), keyEquivalent: "")
+        m.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: "")
+        m.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
+        m.items.forEach { $0.target = self }
+        return m
     }
 
     // пересканировать папку персонажей; если активный пропал - вернуться к встроенному
@@ -165,7 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // открыть папку персонажей в Finder
     func showAgentsFolder() { NSWorkspace.shared.open(agentsFolder()) }
 
-    // иконка-скрепыш в меню-баре с выпадающим меню (создаём/убираем по настройке)
+    // смена персонажа в настройках -> перестроить анимацию в доке
+    func applyAgentChange() { rebuildDockAnimator() }
+
+    // иконка-скрепыш в меню-баре (опция; по умолчанию выкл, на случай скрытого дока)
     func updateStatusItem() {
         if AppSettings.shared.showInMenuBar {
             guard statusItem == nil else { return }
@@ -181,9 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     private func makeStatusMenu() -> NSMenu {
         let m = NSMenu()
-        m.addItem(withTitle: "Показать сейчас", action: #selector(miShow), keyEquivalent: "")
-        m.addItem(withTitle: "Проиграть жест", action: #selector(miGesture), keyEquivalent: "")
-        m.addItem(withTitle: "Прогуляться", action: #selector(miWalk), keyEquivalent: "")
+        m.addItem(withTitle: "Показать факт", action: #selector(miFact), keyEquivalent: "")
         m.addItem(.separator())
         m.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
         m.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
@@ -208,9 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return main
     }
 
-    @objc private func miShow() { showClippy() }
-    @objc private func miGesture() { playGesture() }
-    @objc private func miWalk() { walk() }
+    @objc private func miFact() { showFact(at: nil) }
     @objc private func miSettings() { showSettings() }
     @objc private func miQuit() { NSApp.terminate(nil) }
     @objc private func miAbout() {
@@ -244,124 +243,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
-    private func startScheduler() {
-        let env = ProcessInfo.processInfo.environment
-        let firstDelay = env["CLIPPY_FIRST_DELAY_SEC"].flatMap(Double.init) ?? 30
-        let idleThreshold: Double = 120           // не беспокоить, если юзер отошёл дольше
+    // MARK: - персонаж в доке
 
-        let monitor = ActivityMonitor()
-        self.monitor = monitor
-        let scheduler = Scheduler(
-            firstDelaySeconds: firstDelay,
-            baseInterval: {
-                // CLIPPY_INTERVAL_SEC - отладочный override частоты из настроек
-                if let e = env["CLIPPY_INTERVAL_SEC"].flatMap(Double.init) { return e }
-                return Double(AppSettings.shared.intervalMinutes * 60)
-            },
-            isAllowed: { [weak self] in
-                guard let self, let m = self.monitor else { return false }
-                guard AppSettings.shared.enabled, m.isScreenActive else { return false }
-                if AppSettings.shared.snoozeUntil > Date().timeIntervalSince1970 { return false }
-                if !AppSettings.shared.showWhenIdle && m.secondsSinceUserInput > idleThreshold {
-                    return false
-                }
-                return true
-            },
-            action: { [weak self] in self?.showClippy() }
-        )
-        self.scheduler = scheduler
-        scheduler.start()
+    private func setupDock() {
+        let iv = NSImageView(frame: NSRect(x: 0, y: 0, width: 128, height: 128))
+        iv.imageScaling = .scaleProportionallyUpOrDown
+        NSApp.dockTile.contentView = iv
+        dockView = iv
+        rebuildDockAnimator()
     }
 
-    // панель устарела, если её нет либо сменились масштаб или персонаж
-    private var panelStale: Bool {
-        panel == nil
-            || builtScale != AppSettings.shared.scale
-            || builtAgent != AppSettings.shared.activeAgent
+    // построить аниматор активного персонажа и запустить бесконечный idle в доке
+    private func rebuildDockAnimator() {
+        guard let dockView else { return }
+        do {
+            let ref = availableAgents.first { $0.name == AppSettings.shared.activeAgent }
+                ?? AgentRef(name: builtInAgentName, directory: nil)
+            let agent = try loadClippyAgent(from: ref.directory)
+            let sheet = try loadSpriteSheet(from: ref.directory)
+            let soundsBase = ref.directory?.appendingPathComponent("sounds")
+            let a = SpriteAnimator(imageView: dockView, sheet: sheet, agent: agent,
+                                   soundsBase: soundsBase,
+                                   onRender: { NSApp.dockTile.display() })
+            animator = a
+            builtAgent = ref.name
+            a.play("Show") { [weak a] in a?.loopIdle() }
+        } catch {
+            NSLog("clippy: failed to build dock animator: \(error)")
+        }
     }
 
-    // показать скрепыша с заданной анимацией и свежим фактом в облачке
-    // (без совета не всплываем; на каждый вызов - новый факт)
-    private func present(animation: String) {
-        if panelStale { rebuildPanel() }
-        guard let panel, let animator else { return }
+    // MARK: - факт в облачке у дока
 
+    // показать факт: anchor - точка клика в доке (nil -> прикинуть по краю дока)
+    func showFact(at anchor: NSPoint?) {
+        guard AppSettings.shared.enabled else { return }
         Task { @MainActor in
             guard let tip = await self.fetchTip() else {
                 NSLog("clippy: ни один провайдер не дал совет")
                 return
             }
             self.hideWork?.cancel()
-            if !panel.isVisible {
-                self.positionPanel(panel)
-                panel.orderFrontRegardless()
-            }
-            animator.play(animation) { [weak animator] in animator?.loopIdle() }
-            self.showBubble(tip, above: panel)
+            self.showBubble(tip, anchor: anchor)
             self.scheduleHide(after: self.bubbleSeconds)
-        }
-    }
-
-    // плановый показ / «Показать сейчас»: анимация появления + факт
-    func showClippy() { present(animation: "Show") }
-
-    // клик по скрепышу: случайный жест + новый факт в облачке
-    func interact() { present(animation: Self.gestures.randomElement() ?? "Wave") }
-
-    // проиграть случайный жест без облачка (пункт меню «Проиграть жест»)
-    func playGesture() {
-        guard let panel, panel.isVisible, let animator else { showClippy(); return }
-        hideWork?.cancel()
-        let gesture = Self.gestures.randomElement() ?? "Wave"
-        animator.play(gesture) { [weak animator] in animator?.loopIdle() }
-        scheduleHide(after: bubbleSeconds)
-    }
-
-    // прогулка: скрепыш идёт в случайную точку экрана и там жестикулирует.
-    // Move-анимаций у спрайтшита нет, поэтому смотрим в сторону хода и скользим окном
-    func walk() {
-        if panelStale { rebuildPanel() }
-        guard let panel, let animator, let screen = NSScreen.main else { return }
-        hideWork?.cancel()                            // прогулка не прячется по таймеру
-        if !panel.isVisible {
-            positionPanel(panel)
-            panel.orderFrontRegardless()
-        }
-        let from = panel.frame.origin
-        let target = randomWalkOrigin(in: screen.visibleFrame, panelSize: panel.frame.size, margin: 24)
-        // взгляд в сторону движения на время пути
-        animator.play(directionalAnimation(prefix: "Look", from: from, to: target)) {
-            [weak animator] in animator?.loopIdle()
-        }
-        movePanel(panel, to: target) { [weak self] in
-            guard let self, let animator = self.animator else { return }
-            // придя, жестикулируем в сторону центра экрана
-            let vf = screen.visibleFrame
-            let center = NSPoint(x: vf.midX, y: vf.midY)
-            let panelCenter = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
-            animator.play(directionalAnimation(prefix: "Gesture", from: panelCenter, to: center)) {
-                [weak animator] in animator?.loopIdle()
+            // короткая реакция персонажа в доке
+            self.animator?.play(Self.gestures.randomElement() ?? "Wave") {
+                [weak self] in self?.animator?.loopIdle()
             }
         }
     }
 
-    // плавно двигать панель к точке пошагово (~12 pt/шаг, 60 fps)
-    // ponytail: линейная интерполяция окна вместо Move-спрайтов, которых нет в агенте
-    private func movePanel(_ panel: NSPanel, to target: NSPoint, then: @escaping () -> Void) {
-        let from = panel.frame.origin
-        let steps = max(1, Int(hypot(target.x - from.x, target.y - from.y) / 12))
-        walkToken += 1
-        let myToken = walkToken
-        func stepOnce(_ i: Int) {
-            guard myToken == walkToken else { return }        // перебито новой прогулкой/скрытием
-            let t = CGFloat(i) / CGFloat(steps)
-            panel.setFrameOrigin(NSPoint(x: from.x + (target.x - from.x) * t,
-                                         y: from.y + (target.y - from.y) * t))
-            if i >= steps { AppSettings.shared.position = target; then(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { stepOnce(i + 1) }
-        }
-        stepOnce(1)
+    private func showBubble(_ text: String, anchor: NSPoint?) {
+        let orient = dockOrientation()
+        let host = NSHostingView(rootView: SpeechBubbleView(text: text, dock: orient))
+        let size = host.fittingSize
+        host.frame = NSRect(origin: .zero, size: size)
+
+        bubblePanel?.orderOut(nil)
+        let bp = makeOverlayPanel(contentView: host, size: size)
+        bubblePanel = bp
+
+        let screen = NSScreen.main?.frame ?? .zero
+        let visible = NSScreen.main?.visibleFrame ?? .zero
+        let a = anchor ?? dockEdgeAnchor(orientation: orient, screen: screen)
+        bp.setFrameOrigin(bubbleOrigin(anchor: a, orientation: orient, bubbleSize: size, screen: visible))
+        bp.orderFrontRegardless()
     }
+
+    private func scheduleHide(after seconds: Double) {
+        hideWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.bubblePanel?.orderOut(nil) }
+        hideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    // MARK: - контент
 
     // фолбэк-цепочка: выбранный провайдер, при ошибке - локальный (он всегда отдаёт факт)
     private func fetchTip() async -> String? {
@@ -404,101 +360,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             }
             return RSSProvider(feedURL: url)
         }
-    }
-
-    private func rebuildPanel() {
-        panel?.orderOut(nil)
-        panel = nil
-        animator = nil
-        buildPanel()
-    }
-
-    private func buildPanel() {
-        do {
-            // активный персонаж: из списка по имени, иначе встроенный
-            let ref = availableAgents.first { $0.name == AppSettings.shared.activeAgent }
-                ?? AgentRef(name: builtInAgentName, directory: nil)
-            let agent = try loadClippyAgent(from: ref.directory)
-            let sheet = try loadSpriteSheet(from: ref.directory)
-            let soundsBase = ref.directory?.appendingPathComponent("sounds")
-            let scale = AppSettings.shared.scale
-            let base = agent.frameSize
-            let size = NSSize(width: base.width * scale, height: base.height * scale)
-
-            let imageView = ClippyImageView(frame: NSRect(origin: .zero, size: size))
-            imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.onClick = { [weak self] in self?.interact() }
-            imageView.menu = makeContextMenu()
-
-            self.animator = SpriteAnimator(imageView: imageView, sheet: sheet,
-                                           agent: agent, soundsBase: soundsBase)
-            let p = makeOverlayPanel(contentView: imageView, size: size)
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.didMoveNotification, object: p, queue: .main
-            ) { [weak p] _ in
-                MainActor.assumeIsolated { if let p { AppSettings.shared.position = p.frame.origin } }
-            }
-            self.panel = p
-            self.builtScale = scale
-            self.builtAgent = ref.name
-        } catch {
-            NSLog("clippy: failed to build panel: \(error)")
-        }
-    }
-
-    private func positionPanel(_ panel: NSPanel) {
-        if let pos = AppSettings.shared.position {
-            panel.setFrameOrigin(pos)
-        } else {
-            positionBottomRight(panel)
-        }
-    }
-
-    private func makeContextMenu() -> NSMenu {
-        let m = NSMenu()
-        m.addItem(withTitle: "Следующий совет", action: #selector(ctxNextTip), keyEquivalent: "")
-        m.addItem(withTitle: "Проиграть жест", action: #selector(ctxGesture), keyEquivalent: "")
-        m.addItem(withTitle: "Прогуляться", action: #selector(ctxWalk), keyEquivalent: "")
-        m.addItem(.separator())
-        m.addItem(withTitle: "Спрятать", action: #selector(ctxHide), keyEquivalent: "")
-        m.addItem(withTitle: "Заткнуть на час", action: #selector(ctxSnooze), keyEquivalent: "")
-        m.items.forEach { $0.target = self }
-        return m
-    }
-
-    @objc private func ctxNextTip() { showClippy() }
-    @objc private func ctxGesture() { playGesture() }
-    @objc private func ctxWalk() { walk() }
-    @objc private func ctxHide() { hideClippy() }
-    @objc private func ctxSnooze() {
-        AppSettings.shared.snoozeUntil = Date().timeIntervalSince1970 + 3600
-        hideClippy()
-    }
-
-    private func showBubble(_ text: String, above clippyPanel: NSPanel) {
-        let host = NSHostingView(rootView: SpeechBubbleView(text: text))
-        let size = host.fittingSize
-        host.frame = NSRect(origin: .zero, size: size)
-
-        bubblePanel?.orderOut(nil)
-        let bp = makeOverlayPanel(contentView: host, size: size)
-        bubblePanel = bp
-
-        let cf = clippyPanel.frame
-        bp.setFrameOrigin(NSPoint(x: cf.midX - size.width / 2, y: cf.maxY + 4))
-        bp.orderFrontRegardless()
-    }
-
-    private func scheduleHide(after seconds: Double) {
-        hideWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.hideClippy() }
-        hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
-    }
-
-    private func hideClippy() {
-        walkToken += 1                        // оборвать прогулку, если шла
-        bubblePanel?.orderOut(nil)
-        animator?.play("Hide") { [weak self] in self?.panel?.orderOut(nil) }
     }
 }

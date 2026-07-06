@@ -1,6 +1,6 @@
 import AppKit
 
-// прозрачная панель поверх всех окон, не ворующая фокус (скрепыш и баллон)
+// прозрачная панель поверх всех окон, не ворующая фокус (облачко с фактом)
 @MainActor
 func makeOverlayPanel(contentView: NSView, size: NSSize) -> NSPanel {
     let panel = NSPanel(
@@ -15,35 +15,53 @@ func makeOverlayPanel(contentView: NSView, size: NSSize) -> NSPanel {
     panel.isOpaque = false
     panel.hasShadow = false
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-    panel.isMovableByWindowBackground = true
     panel.contentView = contentView
     return panel
 }
 
-@MainActor
-func positionBottomRight(_ panel: NSPanel) {
-    guard let screen = NSScreen.main else { return }
-    let vf = screen.visibleFrame
-    let margin: CGFloat = 24
-    let x = vf.maxX - panel.frame.width - margin
-    let y = vf.minY + margin
-    panel.setFrameOrigin(NSPoint(x: x, y: y))
+// сторона экрана, где стоит док (читается из настроек Dock)
+enum DockOrientation { case bottom, left, right }
+
+// ориентация дока из com.apple.dock (bottom/left/right), по умолчанию bottom
+func dockOrientation() -> DockOrientation {
+    let v = CFPreferencesCopyAppValue("orientation" as CFString,
+                                      "com.apple.dock" as CFString) as? String
+    switch v {
+    case "left": return .left
+    case "right": return .right
+    default: return .bottom
+    }
 }
 
-// pure: имя направленной анимации (Look*/Gesture*) по вектору from -> to.
-// доминирующая ось задаёт направление; в AppKit y растёт вверх
-func directionalAnimation(prefix: String, from: NSPoint, to: NSPoint) -> String {
-    let dx = to.x - from.x
-    let dy = to.y - from.y
-    if abs(dx) >= abs(dy) { return dx >= 0 ? "\(prefix)Right" : "\(prefix)Left" }
-    return dy >= 0 ? "\(prefix)Up" : "\(prefix)Down"
+// pure: точка привязки облачка, когда нет клика (прикидка по середине края дока)
+func dockEdgeAnchor(orientation: DockOrientation, screen: NSRect) -> NSPoint {
+    let edge: CGFloat = 40
+    switch orientation {
+    case .bottom: return NSPoint(x: screen.midX, y: screen.minY + edge)
+    case .left:   return NSPoint(x: screen.minX + edge, y: screen.midY)
+    case .right:  return NSPoint(x: screen.maxX - edge, y: screen.midY)
+    }
 }
 
-// pure: случайная позиция окна (левый нижний угол) в пределах видимой области с отступом
-func randomWalkOrigin(in visibleFrame: NSRect, panelSize: NSSize, margin: CGFloat) -> NSPoint {
-    let minX = visibleFrame.minX + margin
-    let maxX = max(minX, visibleFrame.maxX - panelSize.width - margin)
-    let minY = visibleFrame.minY + margin
-    let maxY = max(minY, visibleFrame.maxY - panelSize.height - margin)
-    return NSPoint(x: CGFloat.random(in: minX...maxX), y: CGFloat.random(in: minY...maxY))
+// pure: левый нижний угол облачка так, чтобы оно стояло у иконки со стороны дока
+// и не вылезало за видимую область экрана
+func bubbleOrigin(anchor: NSPoint, orientation: DockOrientation,
+                  bubbleSize: NSSize, screen: NSRect) -> NSPoint {
+    let gap: CGFloat = 8
+    var x: CGFloat
+    var y: CGFloat
+    switch orientation {
+    case .bottom:
+        x = anchor.x - bubbleSize.width / 2
+        y = anchor.y + gap
+    case .left:
+        x = anchor.x + gap
+        y = anchor.y - bubbleSize.height / 2
+    case .right:
+        x = anchor.x - bubbleSize.width - gap
+        y = anchor.y - bubbleSize.height / 2
+    }
+    x = min(max(x, screen.minX + 4), screen.maxX - bubbleSize.width - 4)
+    y = min(max(y, screen.minY + 4), screen.maxY - bubbleSize.height - 4)
+    return NSPoint(x: x, y: y)
 }

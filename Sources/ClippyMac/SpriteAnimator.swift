@@ -20,15 +20,18 @@ final class SpriteAnimator {
     private let sheet: CGImage
     private let agent: ClippyAgent
     private let soundsBase: URL?          // папка sounds персонажа; nil -> звуки из бандла
+    private let onRender: (() -> Void)?   // вызывается после каждого кадра (обновить док-иконку)
     private let idleNames: [String]
     private var token = 0                 // растёт при смене анимации, гасит старую цепочку
     private var players: [String: AVAudioPlayer] = [:]
 
-    init(imageView: NSImageView, sheet: CGImage, agent: ClippyAgent, soundsBase: URL?) {
+    init(imageView: NSImageView, sheet: CGImage, agent: ClippyAgent,
+         soundsBase: URL?, onRender: (() -> Void)?) {
         self.imageView = imageView
         self.sheet = sheet
         self.agent = agent
         self.soundsBase = soundsBase
+        self.onRender = onRender
         self.idleNames = agent.animations.keys.filter { $0.hasPrefix("Idle") } + ["RestPose"]
     }
 
@@ -67,22 +70,20 @@ final class SpriteAnimator {
         let layers = (frame.images ?? []).compactMap {
             cropFrame(sheet: sheet, at: $0, frameSize: agent.frameSize)
         }
-        guard let first = layers.first else {
-            imageView.image = nil                              // пустой кадр
-            return
-        }
-        if layers.count == 1 {
-            imageView.image = NSImage(cgImage: first, size: agent.frameSize)
-            return
-        }
+        imageView.image = composite(layers)
+        onRender?()
+    }
+
+    // сложить слои кадра в одну картинку (первый снизу); nil - пустой кадр
+    private func composite(_ layers: [CGImage]) -> NSImage? {
+        guard let first = layers.first else { return nil }
+        if layers.count == 1 { return NSImage(cgImage: first, size: agent.frameSize) }
         let composed = NSImage(size: agent.frameSize)
         composed.lockFocus()
         let rect = NSRect(origin: .zero, size: agent.frameSize)
-        for layer in layers {                                  // порядок массива: первый снизу
-            NSImage(cgImage: layer, size: agent.frameSize).draw(in: rect)
-        }
+        for layer in layers { NSImage(cgImage: layer, size: agent.frameSize).draw(in: rect) }
         composed.unlockFocus()
-        imageView.image = composed
+        return composed
     }
 
     private func playSound(_ frame: Frame) {
