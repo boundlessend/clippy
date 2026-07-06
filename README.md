@@ -1,99 +1,92 @@
 <p align="center">
-  <img src="assets/AppIcon.png" width="128" alt="clippy-mac">
+  <img src="assets/AppIcon.png" alt="Clippy app icon" width="128">
 </p>
 
-# clippy-mac
+<h1 align="center">Clippy</h1>
 
-[![CI](https://github.com/boundlessend/clippy-mac/actions/workflows/ci.yml/badge.svg)](https://github.com/boundlessend/clippy-mac/actions/workflows/ci.yml)
-![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-blue)
-![Swift](https://img.shields.io/badge/Swift-6-orange)
-![License](https://img.shields.io/badge/license-MIT-green)
+<p align="center">
+  <strong>Language:</strong> EN | <a href="README.ru.md">RU</a>
+</p>
 
-возрождение легендарного скрепыша (Clippy/Clippit) на macOS. раз в настраиваемый
-интервал при активном экране скрепыш выныривает в углу, проигрывает анимацию и
-показывает в речевом баллоне факт или совет.
+<p align="center">
+  <strong>the legendary Office paperclip, reborn on macOS</strong>
+</p>
 
-- нативно Swift (AppKit + SwiftUI), menu bar agent, ноль зависимостей
-- оригинальные спрайты и звуки Clippy (из ClippyJS)
-- частотность показа настраивается (пресеты 5-60 мин)
-- живой idle (branching-анимации), жесты по клику, перетаскивание
-- ~600 локальных реплик в характере скрепыша + провайдеры Ollama / Claude / RSS / facts-API
+<p align="center">
+  <img alt="CI" src="https://github.com/boundlessend/clippy-mac/actions/workflows/ci.yml/badge.svg">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-13%2B-111827">
+  <img alt="Swift" src="https://img.shields.io/badge/Swift-5.9-f05138">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-2563eb">
+</p>
 
-## возможности
+`Clippy` is a small macOS app that brings back the legendary assistant. Every so often, while your screen is active, Clippy pops up in a corner, plays an animation, and shows a fact or a tip in a speech bubble. Native Swift, menu bar agent, zero dependencies.
 
-- **menu bar agent** - сам скрепыш иконкой в трее; клик открывает меню
-  (Показать / Настройки… / О программе / Выход), «Настройки…» - окно с настройками
-- **где показывать** - трей и/или иконка в доке (по умолчанию оба); если скрыть
-  оба, окно настроек открывается при повторном запуске приложения
-- **скрепыш** - прозрачное окно поверх всех окон и Spaces, не ворует фокус
-- **живой idle** - вероятностные переходы кадров, случайные idle-жесты
-- **взаимодействие** - левый клик = жест, правый клик = меню, перетаскивание
-  мышью с запоминанием позиции
-- **частота** - 5/10/15/30/60 мин, применяется на лету
-- **детект активности** - не показывается на залоченном/спящем экране и при
-  простое пользователя
-- **размер** - масштаб скрепыша ×0.5…×2
-- **звук** - оригинальная озвучка анимаций (по умолчанию выключена)
-- **snooze** - «заткнуть на час» из контекстного меню
-- **автозапуск** - при входе в систему (LaunchAgent)
-- **источники контента** - переключаются в настройках (см. ниже)
-- **о программе** - панель с версией (сейчас 1.0.0) из меню трея
+## Features
 
-## установка
+- **menu bar agent** - Clippy himself as the tray icon; a click opens a menu (Show now / Play gesture / Settings… / About / Quit), and Settings… opens a window.
+- **where to show** - menu bar and/or a Dock icon (both by default). Hide either; if both are hidden, the settings window opens when you launch the already-running app.
+- **the assistant** - a transparent panel above all windows and Spaces that never steals focus.
+- **living idle** - probabilistic frame transitions (branching) and random idle gestures.
+- **interaction** - left click = gesture, right click = menu, drag with the mouse; the position is remembered.
+- **frequency** - any number of minutes, applied on the fly.
+- **activity detection** - never shows on a locked or sleeping screen, or while you are away.
+- **size** - Clippy scale from ×0.5 to ×2.
+- **sound** - the original animation voices (off by default).
+- **snooze** - "mute for an hour" from the context menu.
+- **autostart** - at login (LaunchAgent).
+- **content** - ~600 built-in lines in Clippy's own voice, filterable by category, plus Ollama / Claude / RSS / facts-API providers with an automatic fallback to local.
+- **about** - a panel with the app version.
 
-### из готового .dmg
+## Installation
 
-собери образ и перетащи `ClippyMac.app` в «Программы»:
+### from a built .dmg
 
-```
+Build the image and drag `ClippyMac.app` to `Applications`:
+
+```bash
 ./scripts/build-dmg.sh
 open build/ClippyMac.dmg
 ```
 
-при первом запуске незаверенного приложения: правый клик по `.app` → «Открыть».
+On the first launch of an unsigned app: right-click the `.app` and choose "Open".
 
-### из исходников
+### from source
 
-```
+```bash
 swift run
 ```
 
-требуется macOS 13+ и Xcode / Swift toolchain.
+Requires macOS 13+ and the Swift toolchain / Xcode.
 
-## настройка источников контента
+## Content sources
 
-- **Локальные советы** - из коробки: ~600 реплик скрепыша в `tips.json`
-- **Ollama** - нужен запущенный `ollama serve` и модель; модель через
-  `CLIPPY_OLLAMA_MODEL` (дефолт `llama3.2`), адрес - `CLIPPY_OLLAMA_URL`
-- **Claude** - ключ в `ANTHROPIC_API_KEY`
-- **RSS** - адрес фида в `CLIPPY_RSS_URL`
-- **Факты из интернета** - из коробки
+Pick the source in Settings. Provider fields live there too (the Claude key is stored in the Keychain, not in plain text).
 
-## разработка
+- **Local tips** - built in: ~600 Clippy lines, toggle categories in Settings.
+- **Ollama** - a running `ollama serve` and a model; set the address and model in Settings (or via `CLIPPY_OLLAMA_URL` / `CLIPPY_OLLAMA_MODEL`).
+- **Claude** - paste the API key in Settings (or `ANTHROPIC_API_KEY`).
+- **RSS** - the feed URL in Settings (or `CLIPPY_RSS_URL`).
+- **Facts from the internet** - built in.
 
-проверка логики без GUI (парсинг спрайтов, кроп кадров, branching, звуки,
-границы джиттера, контент):
+## Development
 
-```
+Verify the logic without a GUI (sprite parsing, frame cropping, branching, sounds, jitter bounds, content):
+
+```bash
 CLIPPY_SELFTEST=1 swift run
 ```
 
-отладка частоты: `CLIPPY_INTERVAL_SEC`, `CLIPPY_FIRST_DELAY_SEC`.
+Frequency debugging: `CLIPPY_INTERVAL_SEC`, `CLIPPY_FIRST_DELAY_SEC`.
 
-план и бэклог - в [PLAN.md](PLAN.md).
+Plan and backlog live in [PLAN.md](PLAN.md).
 
-## credits & assets
+## Credits & assets
 
-- спрайты, тайминги анимаций и звуки взяты из
-  [ClippyJS](https://github.com/smore-inc/clippy.js) (MIT), которые в свою
-  очередь происходят из **Microsoft Agent** (персонаж «Clippit»)
-- идея desktop-агента и часть фич вдохновлены
-  [Cosmo/Clippy](https://github.com/Cosmo/Clippy)
+- sprites, animation timings, and sounds come from [ClippyJS](https://github.com/smore-inc/clippy.js) (MIT), which in turn come from **Microsoft Agent** (the "Clippit" character)
+- the desktop-agent idea and some features are inspired by [Cosmo/Clippy](https://github.com/Cosmo/Clippy)
 
-спрайты и звуки остаются интеллектуальной собственностью правообладателей и
-включены для личного некоммерческого использования. MIT-лицензия проекта
-покрывает только исходный код.
+Sprites and sounds remain the intellectual property of their owners and are included for personal, non-commercial use. The project's MIT license covers the source code only.
 
-## лицензия
+## License
 
-[MIT](LICENSE) - на исходный код. По ассетам см. раздел выше.
+[MIT](LICENSE) for the source code. For assets, see the section above.
