@@ -237,8 +237,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             }
             self.showBubble(tip, anchor: anchor)
             self.scheduleHide(after: self.bubbleSeconds)   // сам отменяет прежний таймер
-            // короткая реакция персонажа в доке
-            self.animator?.play(Self.gestures.randomElement() ?? "Wave") {
+            // короткая реакция персонажа в доке (maxSteps - чтобы зацикленные жесты не зависли)
+            self.animator?.play(Self.gestures.randomElement() ?? "Wave", maxSteps: 60) {
                 [weak self] in self?.animator?.loopIdle()
             }
         }

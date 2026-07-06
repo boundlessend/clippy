@@ -32,7 +32,10 @@ final class SpriteAnimator {
         self.agent = agent
         self.soundsBase = soundsBase
         self.onRender = onRender
-        self.idleNames = agent.animations.keys.filter { $0.hasPrefix("Idle") } + ["RestPose"]
+        // только реально существующие idle-анимации; если их нет - любые (иначе пустой кадр)
+        let idle = (agent.animations.keys.filter { $0.hasPrefix("Idle") } + ["RestPose"])
+            .filter { agent.animations[$0] != nil }
+        self.idleNames = idle.isEmpty ? Array(agent.animations.keys) : idle
     }
 
     // проиграть анимацию (maxSteps ограничивает зацикленные idle), затем completion
@@ -72,10 +75,8 @@ final class SpriteAnimator {
                 if cyclesLeft <= 1 { then(); return }
                 run(0, cyclesLeft - 1); return
             }
-            let frame = frames[order[pos]]
-            render(frame)
-            playSound(frame)
-            let delay = Double(max(frame.duration, 1)) / 1000.0
+            render(frames[order[pos]])                 // idle-петля без звука (иначе он зациклится)
+            let delay = Double(max(frames[order[pos]].duration, 1)) / 1000.0
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { run(pos + 1, cyclesLeft) }
         }
         run(0, cycles)

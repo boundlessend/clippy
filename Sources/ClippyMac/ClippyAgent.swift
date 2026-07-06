@@ -45,7 +45,11 @@ func loadClippyAgent(from directory: URL?) throws -> ClippyAgent {
     } else {
         throw AssetError.missing("clippy_agent.json")
     }
-    return try JSONDecoder().decode(ClippyAgent.self, from: Data(contentsOf: url))
+    let agent = try JSONDecoder().decode(ClippyAgent.self, from: Data(contentsOf: url))
+    guard agent.framesize.count == 2 else {          // чужой agent.json может быть кривым
+        throw AssetError.missing("framesize должен быть [w,h]")
+    }
+    return agent
 }
 
 // directory == nil -> встроенный спрайтшит из бандла; иначе map.png из папки персонажа
@@ -67,6 +71,7 @@ func loadSpriteSheet(from directory: URL?) throws -> CGImage {
 
 // pure: вырезать кадр из спрайтшита по координате левого верхнего угла
 func cropFrame(sheet: CGImage, at point: [Int], frameSize: CGSize) -> CGImage? {
+    guard point.count == 2 else { return nil }       // кривой слой [x,y] у чужого агента
     let rect = CGRect(x: point[0], y: point[1],
                       width: Int(frameSize.width), height: Int(frameSize.height))
     return sheet.cropping(to: rect)
