@@ -33,6 +33,12 @@ func runSelfCheckIfRequested() {
         precondition(!tips.isEmpty && tips.allSatisfy { !$0.isEmpty }, "tips must be non-empty")
         _ = try LocalJSONProvider()
 
+        // иконка меню-бара присутствует и грузится
+        guard let micon = Bundle.module.url(forResource: "menubar", withExtension: "png"),
+              NSImage(contentsOf: micon) != nil else {
+            fatalError("menubar.png missing or unreadable")
+        }
+
         // планировщик: разброс не выходит за границы и не короче 1 с
         for _ in 0..<1000 {
             let v = jitteredInterval(baseSeconds: 600, jitterSeconds: 60)

@@ -29,6 +29,21 @@ final class AppSettings: ObservableObject {
     @Published var scale: Double { didSet { d.set(scale, forKey: K.scale) } }
     @Published var muted: Bool { didSet { d.set(muted, forKey: K.muted) } }
 
+    // где показывать приложение. защита: хотя бы одна поверхность включена,
+    // иначе настройки станут недостижимы (нет ни трея, ни дока/меню окна)
+    @Published var showInMenuBar: Bool {
+        didSet {
+            d.set(showInMenuBar, forKey: K.showInMenuBar)
+            if !showInMenuBar && !showInDock { showInDock = true }
+        }
+    }
+    @Published var showInDock: Bool {
+        didSet {
+            d.set(showInDock, forKey: K.showInDock)
+            if !showInDock && !showInMenuBar { showInMenuBar = true }
+        }
+    }
+
     // пауза до момента (epoch-секунды, 0 = нет); позиция скрепыша
     var snoozeUntil: Double { didSet { d.set(snoozeUntil, forKey: K.snooze) } }
     var position: NSPoint? {
@@ -47,6 +62,8 @@ final class AppSettings: ObservableObject {
         static let provider = "providerKind"
         static let scale = "scale"
         static let muted = "muted"
+        static let showInMenuBar = "showInMenuBar"
+        static let showInDock = "showInDock"
         static let snooze = "snoozeUntil"
         static let hasPos = "hasPosition"
         static let posX = "posX"
@@ -58,6 +75,7 @@ final class AppSettings: ObservableObject {
             K.interval: 10, K.enabled: true, K.showWhenIdle: false,
             K.provider: ProviderKind.local.rawValue,
             K.scale: 1.0, K.muted: true,
+            K.showInMenuBar: true, K.showInDock: true,
         ])
         intervalMinutes = d.integer(forKey: K.interval)
         enabled = d.bool(forKey: K.enabled)
@@ -65,6 +83,8 @@ final class AppSettings: ObservableObject {
         providerKind = ProviderKind(rawValue: d.string(forKey: K.provider) ?? "") ?? .local
         scale = d.double(forKey: K.scale)
         muted = d.bool(forKey: K.muted)
+        showInMenuBar = d.bool(forKey: K.showInMenuBar)
+        showInDock = d.bool(forKey: K.showInDock)
         snoozeUntil = d.double(forKey: K.snooze)
         position = d.bool(forKey: K.hasPos)
             ? NSPoint(x: d.double(forKey: K.posX), y: d.double(forKey: K.posY))

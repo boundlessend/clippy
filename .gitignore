@@ -1,6 +1,12 @@
 # macOS
 .DS_Store
 
+# editors
+.vscode/
+
+# производный intermediate для .icns (артефакт - AppIcon.icns)
+assets/AppIcon.iconset/
+
 # Xcode
 build/
 DerivedData/

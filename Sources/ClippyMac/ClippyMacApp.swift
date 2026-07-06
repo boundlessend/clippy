@@ -3,15 +3,39 @@ import AppKit
 
 struct ClippyMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some Scene {
-        MenuBarExtra("Clippy", systemImage: "paperclip") {
-            ClippyMenu(delegate: delegate)
+        MenuBarExtra(isInserted: $settings.showInMenuBar) {
+            ClippyControls(delegate: delegate)
+        } label: {
+            Image(nsImage: Self.menuBarIcon).renderingMode(.template)
+        }
+        // окно настроек (Cmd+,) - доступно в режиме дока, когда трей выключен
+        Settings {
+            Form { ClippyControls(delegate: delegate) }
+                .formStyle(.grouped)
+                .frame(width: 340)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
+
+    // минималистичный шаблон-глиф скрепыша для меню-бара; фолбэк - SF-скрепка
+    private static let menuBarIcon: NSImage = {
+        if let url = Bundle.module.url(forResource: "menubar", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            img.isTemplate = true
+            let h: CGFloat = 18
+            img.size = NSSize(width: h * img.size.width / img.size.height, height: h)
+            return img
+        }
+        return NSImage(systemSymbolName: "paperclip", accessibilityDescription: "Clippy")
+            ?? NSImage()
+    }()
 }
 
-struct ClippyMenu: View {
+// общий набор контролов: и как содержимое трея, и в окне настроек
+struct ClippyControls: View {
     let delegate: AppDelegate
     @ObservedObject private var settings = AppSettings.shared
 
@@ -36,8 +60,17 @@ struct ClippyMenu: View {
             set: { setLoginItem($0) }
         ))
         Divider()
+        Toggle("Показывать в меню-баре", isOn: $settings.showInMenuBar)
+        Toggle("Показывать в доке", isOn: $settings.showInDock)
+            .onChange(of: settings.showInDock) { _ in applyActivationPolicy() }
+        Divider()
         Button("Выход") { NSApplication.shared.terminate(nil) }
     }
+}
+
+// иконка в доке = .regular, только трей = .accessory
+@MainActor func applyActivationPolicy() {
+    NSApp.setActivationPolicy(AppSettings.shared.showInDock ? .regular : .accessory)
 }
 
 @MainActor
@@ -60,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)     // agent-приложение, без иконки в доке
+        applyActivationPolicy()                   // док/трей - по настройкам
         startScheduler()
     }
 
