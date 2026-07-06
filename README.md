@@ -27,7 +27,7 @@
 - **where to show** - menu bar and/or a Dock icon (both by default). Hide either; if both are hidden, the settings window opens when you launch the already-running app.
 - **the assistant** - a transparent panel above all windows and Spaces that never steals focus.
 - **living idle** - probabilistic frame transitions (branching) and random idle gestures.
-- **interaction** - left click = gesture, right click = menu, drag with the mouse; the position is remembered.
+- **interaction** - left click = a fresh tip with a gesture, right click = menu, drag with the mouse; the position is remembered.
 - **frequency** - any number of minutes, applied on the fly.
 - **activity detection** - never shows on a locked or sleeping screen, or while you are away.
 - **size** - Clippy scale from ×0.5 to ×2.
@@ -35,6 +35,8 @@
 - **snooze** - "mute for an hour" from the context menu.
 - **autostart** - at login (LaunchAgent).
 - **content** - ~600 built-in lines in Clippy's own voice, filterable by category, plus Ollama / Claude / RSS / facts-API providers with an automatic fallback to local.
+- **walk** - from the menu, Clippy strolls to a random spot on screen and gestures.
+- **characters** - built-in Clippy plus custom characters dropped into the `Agents` folder (each a subfolder with `agent.json` + `map.png`); switch in Settings.
 - **about** - a panel with the app version.
 
 ## Installation

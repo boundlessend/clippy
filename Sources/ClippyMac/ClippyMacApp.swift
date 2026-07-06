@@ -3,7 +3,7 @@ import AppKit
 
 // набор контролов для окна настроек
 struct ClippyControls: View {
-    let delegate: AppDelegate
+    @ObservedObject var delegate: AppDelegate
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
@@ -32,6 +32,16 @@ struct ClippyControls: View {
         }
         providerFields
         if settings.providerKind == .local { categoryToggles }
+        Divider()
+        // персонаж: встроенный Clippy или папка из ~/…/ClippyMac/Agents
+        Picker("Персонаж", selection: $settings.activeAgent) {
+            ForEach(delegate.availableAgents) { Text($0.name).tag($0.name) }
+        }
+        .onChange(of: settings.activeAgent) { _ in delegate.showClippy() }
+        HStack {
+            Button("Папка персонажей") { delegate.showAgentsFolder() }
+            Button("Обновить список") { delegate.reloadAgents() }
+        }
         Divider()
         Toggle("Показывать в меню-баре", isOn: $settings.showInMenuBar)
             .onChange(of: settings.showInMenuBar) { _ in delegate.updateStatusItem() }
@@ -87,7 +97,8 @@ struct SettingsRootView: View {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    @Published private(set) var availableAgents: [AgentRef] = []   // встроенный + из папки
     private var panel: NSPanel?
     private var bubblePanel: NSPanel?
     private var animator: SpriteAnimator?
@@ -96,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: ActivityMonitor?
     private var scheduler: Scheduler?
     private var builtScale: Double = 0                // масштаб, с которым построена панель
+    private var builtAgent: String = ""               // имя персонажа, с которым построена панель
     private var builtCategories: Set<String> = []     // категории, с которыми построен localProvider
     private var settingsWindow: NSWindow?
     private var statusItem: NSStatusItem?
@@ -126,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        reloadAgents()                            // список персонажей (встроенный + из папки)
         NSApp.mainMenu = makeMainMenu()           // меню приложения (док-режим, Cmd+,, Cmd+Q)
         applyActivationPolicy()                   // док/трей - по настройкам
         updateStatusItem()                        // иконка в баре по настройке
@@ -140,6 +153,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !hasVisibleWindows { showSettings() }
         return true
     }
+
+    // пересканировать папку персонажей; если активный пропал - вернуться к встроенному
+    func reloadAgents() {
+        availableAgents = discoverAgents()
+        if !availableAgents.contains(where: { $0.name == AppSettings.shared.activeAgent }) {
+            AppSettings.shared.activeAgent = builtInAgentName
+        }
+    }
+
+    // открыть папку персонажей в Finder
+    func showAgentsFolder() { NSWorkspace.shared.open(agentsFolder()) }
 
     // иконка-скрепыш в меню-баре с выпадающим меню (создаём/убираем по настройке)
     func updateStatusItem() {
@@ -249,10 +273,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduler.start()
     }
 
+    // панель устарела, если её нет либо сменились масштаб или персонаж
+    private var panelStale: Bool {
+        panel == nil
+            || builtScale != AppSettings.shared.scale
+            || builtAgent != AppSettings.shared.activeAgent
+    }
+
     // показать скрепыша с заданной анимацией и свежим фактом в облачке
     // (без совета не всплываем; на каждый вызов - новый факт)
     private func present(animation: String) {
-        if panel == nil || builtScale != AppSettings.shared.scale { rebuildPanel() }
+        if panelStale { rebuildPanel() }
         guard let panel, let animator else { return }
 
         Task { @MainActor in
@@ -289,7 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // прогулка: скрепыш идёт в случайную точку экрана и там жестикулирует.
     // Move-анимаций у спрайтшита нет, поэтому смотрим в сторону хода и скользим окном
     func walk() {
-        if panel == nil || builtScale != AppSettings.shared.scale { rebuildPanel() }
+        if panelStale { rebuildPanel() }
         guard let panel, let animator, let screen = NSScreen.main else { return }
         hideWork?.cancel()                            // прогулка не прячется по таймеру
         if !panel.isVisible {
@@ -384,8 +415,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildPanel() {
         do {
-            let agent = try loadClippyAgent()
-            let sheet = try loadSpriteSheet()
+            // активный персонаж: из списка по имени, иначе встроенный
+            let ref = availableAgents.first { $0.name == AppSettings.shared.activeAgent }
+                ?? AgentRef(name: builtInAgentName, directory: nil)
+            let agent = try loadClippyAgent(from: ref.directory)
+            let sheet = try loadSpriteSheet(from: ref.directory)
+            let soundsBase = ref.directory?.appendingPathComponent("sounds")
             let scale = AppSettings.shared.scale
             let base = agent.frameSize
             let size = NSSize(width: base.width * scale, height: base.height * scale)
@@ -395,7 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             imageView.onClick = { [weak self] in self?.interact() }
             imageView.menu = makeContextMenu()
 
-            self.animator = SpriteAnimator(imageView: imageView, sheet: sheet, agent: agent)
+            self.animator = SpriteAnimator(imageView: imageView, sheet: sheet,
+                                           agent: agent, soundsBase: soundsBase)
             let p = makeOverlayPanel(contentView: imageView, size: size)
             NotificationCenter.default.addObserver(
                 forName: NSWindow.didMoveNotification, object: p, queue: .main
@@ -404,6 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.panel = p
             self.builtScale = scale
+            self.builtAgent = ref.name
         } catch {
             NSLog("clippy: failed to build panel: \(error)")
         }

@@ -61,6 +61,9 @@ final class AppSettings: ObservableObject {
         didSet { d.set(Array(enabledCategories), forKey: K.categories) }
     }
 
+    // активный персонаж (имя): встроенный Clippy или папка из ~/…/ClippyMac/Agents
+    @Published var activeAgent: String { didSet { d.set(activeAgent, forKey: K.activeAgent) } }
+
     // где показывать приложение (можно скрыть и там, и там; если скрыто всё -
     // окно настроек открывается при запуске уже запущенного приложения)
     @Published var showInMenuBar: Bool { didSet { d.set(showInMenuBar, forKey: K.showInMenuBar) } }
@@ -89,6 +92,7 @@ final class AppSettings: ObservableObject {
         static let rssURL = "rssURL"
         static let claudeKey = "anthropic-api-key"      // account в Keychain
         static let categories = "enabledCategories"
+        static let activeAgent = "activeAgent"
         static let showInMenuBar = "showInMenuBar"
         static let showInDock = "showInDock"
         static let snooze = "snoozeUntil"
@@ -118,6 +122,7 @@ final class AppSettings: ObservableObject {
         rssURL = d.string(forKey: K.rssURL) ?? ""
         claudeKey = Keychain.get(account: K.claudeKey) ?? ""
         enabledCategories = d.stringArray(forKey: K.categories).map(Set.init) ?? Self.allCategoryKeys
+        activeAgent = d.string(forKey: K.activeAgent) ?? builtInAgentName
         showInMenuBar = d.bool(forKey: K.showInMenuBar)
         showInDock = d.bool(forKey: K.showInDock)
         snoozeUntil = d.double(forKey: K.snooze)

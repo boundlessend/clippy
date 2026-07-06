@@ -154,6 +154,7 @@ clippy-mac/
     ActivityMonitor.swift          # lock/sleep/screensaver/idle
     Scheduler.swift                # таймер + джиттер
     Settings.swift                 # AppSettings над UserDefaults
+    AgentLibrary.swift             # обнаружение персонажей (встроенный + папка Agents)
     TipProvider.swift              # protocol + LocalJSONProvider
     NetworkProviders.swift         # Ollama / Claude / RSS / FactsAPI
     LoginItem.swift                # автозапуск (SMAppService/LaunchAgent)
@@ -289,8 +290,12 @@ clippy-mac/
 ## бэклог
 
 идеи из Cosmo/Clippy:
-- **9** кастомные агенты из папки `.agent` + «Show in Finder» + «Reload»
+- ~~**9** кастомные агенты из папки~~ сделано: `~/Library/Application Support/ClippyMac/Agents/`,
+  каждая подпапка (`agent.json` + `map.png` + опц. `sounds/`) = персонаж; выбор в
+  настройках, «Папка персонажей» (Finder) и «Обновить список». Битые папки
+  пропускаются, при пропаже активного - откат на встроенного (`AgentLibrary.swift`)
 - **10** конвертер `.acs` (любой Microsoft Agent персонаж), по мотивам `agent-convert.sh`
+  - теперь его выход кладётся прямо в папку Agents и подхватывается пунктом 9
 - ~~**11** MoveTo / GestureAt~~ сделано: «Прогуляться» (меню трея/контекст/настройки).
   Move-анимаций у спрайтшита нет, поэтому скольжение окном + `Look*` в сторону хода,
   по прибытии `Gesture*` в центр экрана. Направление - pure `directionalAnimation`,
@@ -333,6 +338,7 @@ clippy-mac/
 
 MVP (P0-P5), оживление (P6), публикация, иконка, UI (меню/окно настроек/About/
 версия), 598 локальных фактов по категориям, свой интервал, поля провайдеров +
-фолбэк, двуязычный README, ходьба по экрану («Прогуляться») - готовы. Осталось из
-бэклога: пункты 9/10 (кастомные `.agent`, конвертер `.acs`), подпись Developer ID +
-нотаризация, решение по ассетам Microsoft перед публичной публикацией.
+фолбэк, двуязычный README, ходьба по экрану («Прогуляться»), кастомные персонажи
+из папки Agents - готовы. Осталось из бэклога: пункт 10 (конвертер `.acs`, кладёт
+результат в папку Agents), подпись Developer ID + нотаризация, решение по ассетам
+Microsoft перед публичной публикацией.

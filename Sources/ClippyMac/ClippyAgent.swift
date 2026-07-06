@@ -35,18 +35,32 @@ struct Branch: Decodable {
 
 enum AssetError: Error { case missing(String) }
 
-func loadClippyAgent() throws -> ClippyAgent {
-    guard let url = Bundle.module.url(forResource: "clippy_agent", withExtension: "json") else {
+// directory == nil -> встроенный агент из бандла; иначе agent.json из папки персонажа
+func loadClippyAgent(from directory: URL?) throws -> ClippyAgent {
+    let url: URL
+    if let directory {
+        url = directory.appendingPathComponent("agent.json")
+    } else if let bundled = Bundle.module.url(forResource: "clippy_agent", withExtension: "json") {
+        url = bundled
+    } else {
         throw AssetError.missing("clippy_agent.json")
     }
     return try JSONDecoder().decode(ClippyAgent.self, from: Data(contentsOf: url))
 }
 
-func loadSpriteSheet() throws -> CGImage {
-    guard let url = Bundle.module.url(forResource: "clippy_map", withExtension: "png"),
-          let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+// directory == nil -> встроенный спрайтшит из бандла; иначе map.png из папки персонажа
+func loadSpriteSheet(from directory: URL?) throws -> CGImage {
+    let url: URL
+    if let directory {
+        url = directory.appendingPathComponent("map.png")
+    } else if let bundled = Bundle.module.url(forResource: "clippy_map", withExtension: "png") {
+        url = bundled
+    } else {
         throw AssetError.missing("clippy_map.png")
+    }
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+        throw AssetError.missing(url.lastPathComponent)
     }
     return img
 }

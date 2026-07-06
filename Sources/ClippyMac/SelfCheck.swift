@@ -6,12 +6,12 @@ import AppKit
 func runSelfCheckIfRequested() {
     guard ProcessInfo.processInfo.environment["CLIPPY_SELFTEST"] != nil else { return }
     do {
-        let agent = try loadClippyAgent()
+        let agent = try loadClippyAgent(from: nil)
         precondition(agent.framesize.count == 2, "framesize must be [w,h]")
         let fs = agent.frameSize
         precondition(fs.width > 0 && fs.height > 0, "empty frame size")
 
-        let sheet = try loadSpriteSheet()
+        let sheet = try loadSpriteSheet(from: nil)
         var cropped = 0
         for (name, anim) in agent.animations {
             for frame in anim.frames {
@@ -61,6 +61,12 @@ func runSelfCheckIfRequested() {
                          && p.y >= vf.minY + 24 && p.y <= vf.maxY - psize.height - 24,
                          "walk target out of bounds: \(p)")
         }
+
+        // библиотека персонажей: встроенный Clippy всегда доступен и грузится как из папки=nil
+        let agents = discoverAgents()
+        precondition(agents.contains { $0.name == builtInAgentName && $0.directory == nil },
+                     "built-in agent missing from library")
+        _ = try loadClippyAgent(from: nil)
 
         // иконка меню-бара присутствует и грузится
         guard let micon = Bundle.module.url(forResource: "menubar", withExtension: "png"),
