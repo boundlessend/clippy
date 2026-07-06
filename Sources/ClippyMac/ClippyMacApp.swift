@@ -7,16 +7,11 @@ struct ClippyMacApp: App {
 
     var body: some Scene {
         MenuBarExtra(isInserted: $settings.showInMenuBar) {
+            Button("Настройки…") { delegate.showSettings() }
+            Divider()
             ClippyControls(delegate: delegate)
         } label: {
             Image(nsImage: Self.menuBarIcon).renderingMode(.template)
-        }
-        // окно настроек (Cmd+,) - доступно в режиме дока, когда трей выключен
-        Settings {
-            Form { ClippyControls(delegate: delegate) }
-                .formStyle(.grouped)
-                .frame(width: 340)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -68,6 +63,16 @@ struct ClippyControls: View {
     }
 }
 
+// содержимое окна настроек (то же, что в трее, но в форме)
+struct SettingsRootView: View {
+    let delegate: AppDelegate
+
+    var body: some View {
+        Form { ClippyControls(delegate: delegate) }
+            .formStyle(.grouped)
+    }
+}
+
 // иконка в доке = .regular, только трей = .accessory
 @MainActor func applyActivationPolicy() {
     NSApp.setActivationPolicy(AppSettings.shared.showInDock ? .regular : .accessory)
@@ -83,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: ActivityMonitor?
     private var scheduler: Scheduler?
     private var builtScale: Double = 0                // масштаб, с которым построена панель
+    private var settingsWindow: NSWindow?
 
     // ponytail: фиксированная длительность показа баллона
     private let bubbleSeconds: Double = 8
@@ -95,6 +101,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyActivationPolicy()                   // док/трей - по настройкам
         startScheduler()
+        // на первом запуске сразу показываем настройки, чтобы было где настроить
+        let d = UserDefaults.standard
+        if !d.bool(forKey: "didOnboard") {
+            d.set(true, forKey: "didOnboard")
+            showSettings()
+        }
+    }
+
+    // клик по иконке в доке (нет открытых окон) - открыть настройки
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { showSettings() }
+        return true
+    }
+
+    // единое окно настроек: и на первом запуске, и из дока, и из трея
+    func showSettings() {
+        if settingsWindow == nil {
+            let hosting = NSHostingController(rootView: SettingsRootView(delegate: self))
+            hosting.sizingOptions = []                 // не навязывать окну размер контента
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 460),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered, defer: false)
+            w.contentViewController = hosting
+            w.setContentSize(NSSize(width: 360, height: 460))
+            w.title = "Настройки Clippy"
+            w.isReleasedWhenClosed = false
+            w.center()
+            settingsWindow = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func startScheduler() {
