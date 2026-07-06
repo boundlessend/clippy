@@ -1,8 +1,9 @@
 import Foundation
 
 // автозапуск через LaunchAgent (без подписи и Xcode, для личного использования).
-// ponytail: plist указывает на текущий исполняемый файл; при релизной .app-сборке
-// путь надо будет обновить на установленный бинарь
+// plist указывает на исполняемый файл, запущенный в момент включения тумблера
+// (Bundle.main.executablePath), поэтому включать автозапуск нужно из установленного
+// в /Applications приложения, а не из `swift run`
 
 private let loginLabel = "com.clippymac.agent"
 
@@ -48,6 +49,13 @@ private func launchctl(_ args: [String]) {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
     p.arguments = args
-    try? p.run()
-    p.waitUntilExit()
+    do {
+        try p.run()
+        p.waitUntilExit()
+        if p.terminationStatus != 0 {
+            NSLog("clippy: launchctl \(args.first ?? "") exited \(p.terminationStatus)")
+        }
+    } catch {
+        NSLog("clippy: launchctl failed to run: \(error)")
+    }
 }

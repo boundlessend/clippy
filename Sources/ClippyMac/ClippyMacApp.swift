@@ -108,6 +108,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         NSApp.mainMenu = makeMainMenu()           // меню приложения (Cmd+,, Cmd+Q)
         NSApp.setActivationPolicy(.regular)       // всегда в доке
         setupDock()                               // анимированный персонаж в доке
+        setupPowerNotifications()                 // пауза анимации при блокировке/сне экрана
+    }
+
+    // не крутить idle, когда иконка не видна (экран заблокирован или дисплей спит) -
+    // экономия CPU/батареи
+    private func setupPowerNotifications() {
+        let dc = DistributedNotificationCenter.default()
+        dc.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.animator?.stop() }
+        }
+        dc.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.animator?.loopIdle() }
+        }
+        let ws = NSWorkspace.shared.notificationCenter
+        ws.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.animator?.stop() }
+        }
+        ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.animator?.loopIdle() }
+        }
     }
 
     // левый клик по иконке в доке: показать факт, но если открыто «настоящее» окно
@@ -222,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             let a = SpriteAnimator(imageView: dockView, sheet: sheet, agent: agent,
                                    soundsBase: soundsBase,
                                    onRender: { NSApp.dockTile.display() })
+            animator?.stop()                       // погасить прежний, чтобы не дрались за иконку
             animator = a
             a.play("Show") { [weak a] in a?.loopIdle() }
         } catch {

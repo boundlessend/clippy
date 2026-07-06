@@ -38,6 +38,9 @@ final class SpriteAnimator {
         self.idleNames = idle.isEmpty ? Array(agent.animations.keys) : idle
     }
 
+    // остановить текущую анимацию/idle (гасит цепочку по token) - пауза/при замене аниматора
+    func stop() { token += 1 }
+
     // проиграть анимацию (maxSteps ограничивает зацикленные idle), затем completion
     func play(_ name: String, maxSteps: Int? = nil, then completion: (() -> Void)? = nil) {
         guard let anim = agent.animations[name] else { completion?(); return }
@@ -64,22 +67,30 @@ final class SpriteAnimator {
         playSequence(frames, order: fwd + back, cycles: 2) { [weak self] in self?.loopIdle() }
     }
 
-    // проиграть кадры в заданном порядке, повторить cycles раз, затем completion
+    // проиграть кадры в заданном порядке, повторить cycles раз, затем completion.
+    // отдельный метод (не вложенная функция) - чтобы asyncAfter держал self СЛАБО и
+    // бесконечный idle не удерживал аниматор навечно
     private func playSequence(_ frames: [Frame], order: [Int], cycles: Int,
                               then: @escaping () -> Void) {
         token += 1
-        let myToken = token
-        func run(_ pos: Int, _ cyclesLeft: Int) {
-            guard myToken == token else { return }              // перебито новой анимацией
-            if pos >= order.count {
-                if cyclesLeft <= 1 { then(); return }
-                run(0, cyclesLeft - 1); return
-            }
-            render(frames[order[pos]])                 // idle-петля без звука (иначе он зациклится)
-            let delay = Double(max(frames[order[pos]].duration, 1)) / 1000.0
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { run(pos + 1, cyclesLeft) }
+        stepSequence(frames, order: order, pos: 0, cyclesLeft: cycles, myToken: token, then: then)
+    }
+
+    private func stepSequence(_ frames: [Frame], order: [Int], pos: Int, cyclesLeft: Int,
+                              myToken: Int, then: @escaping () -> Void) {
+        guard myToken == token else { return }                 // перебито/остановлено
+        if pos >= order.count {
+            if cyclesLeft <= 1 { then(); return }
+            stepSequence(frames, order: order, pos: 0, cyclesLeft: cyclesLeft - 1,
+                         myToken: myToken, then: then)
+            return
         }
-        run(0, cycles)
+        render(frames[order[pos]])                     // idle-петля без звука (иначе он зациклится)
+        let delay = Double(max(frames[order[pos]].duration, 1)) / 1000.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.stepSequence(frames, order: order, pos: pos + 1, cyclesLeft: cyclesLeft,
+                               myToken: myToken, then: then)
+        }
     }
 
     private func step(_ frames: [Frame], index: Int, stepsLeft: Int?, myToken: Int,
