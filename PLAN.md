@@ -19,7 +19,11 @@
 провайдеры контента) - как того требует стиль проекта.
 
 ```
-MenuBarExtra (иконка в трее, меню управления)
+NSStatusItem (скрепыш в трее) + AppDelegate (чистый AppKit, точка входа в main.swift)
+   ├─ NSMenu: Показать сейчас / Проиграть жест / Настройки… / О программе / Выход
+   ├─ Настройки… -> NSWindow(NSHostingController(SettingsRootView: SwiftUI Form)
+   ├─ О программе -> orderFrontStandardAboutPanel (версия из Info.plist)
+   └─ активити-полиси: .regular (иконка в доке) / .accessory (только трей)
       │
    Scheduler (Timer 10 мин + джиттер)
       │  спрашивает ActivityMonitor: экран активен?
@@ -42,10 +46,14 @@ MenuBarExtra (иконка в трее, меню управления)
 
 ### ключевые технические узлы
 
-**1. Тип приложения.** agent-приложение: `LSUIElement = YES` в Info.plist (нет
-иконки в доке). Трей через `MenuBarExtra` (SwiftUI, macOS 13+). Само окно
-скрепыша создаётся вручную через `NSApplicationDelegate`, потому что SwiftUI
-`WindowGroup` не даёт прозрачное borderless окно.
+**1. Тип приложения.** точка входа - чистый AppKit (`main.swift`:
+`NSApplication` + `AppDelegate`), НЕ SwiftUI `App`. Причина: SwiftUI
+`MenuBarExtra` на практике не реагировал на клики (в accessibility - 0 меню-баров)
+и мешал reopen из дока. Трей - нативный `NSStatusItem` с `NSMenu` (раскрывается
+всегда, виден в AX). Видимость в доке/трее - `setActivationPolicy(.regular /
+.accessory)` + добавление/снятие `NSStatusItem`; `LSUIElement = YES` в Info.plist,
+чтобы на старте не мигала иконка дока. SwiftUI остаётся только для контента окон
+(`SettingsRootView`, баллон) через `NSHostingController`/`NSHostingView`.
 
 **2. Окно скрепыша - `NSPanel`.**
 - стиль `[.borderless, .nonactivatingPanel]`, `isFloatingPanel = true`
@@ -91,13 +99,19 @@ MenuBarExtra (иконка в трее, меню управления)
 (±60 с), чтобы не ровно по часам. При заблокированном/спящем экране показ
 пропускаем (следующий тик). Первый показ - с небольшой задержкой после старта.
 
-**7. Настройки (`Settings`).** обёртка над `UserDefaults`: частотность показа,
-вкл/выкл, выбранный провайдер, показывать ли при простое, позиция окна, длина
-показа баллона. Управление из меню трея.
-- **частотность (обязательно с первого дня в UI):** пресеты в меню трея -
-  каждые 5 / 10 / 15 / 30 / 60 мин + пункт "свой интервал" (произвольное число
-  минут). Хранится как `intervalMinutes: Int` в `UserDefaults`, применяется на
-  лету (перезапуск `Scheduler`)
+**7. Настройки (`AppSettings`).** обёртка над `UserDefaults`: частотность показа,
+вкл/выкл, провайдер, масштаб, звук, показ при простое, позиция окна, snooze,
+`showInMenuBar` / `showInDock`. Управление - в окне настроек
+(`SettingsRootView`: SwiftUI `Form` в `NSWindow`), открывается из меню трея
+(«Настройки…»), из меню приложения / Cmd+, (режим дока) и при повторном запуске,
+если скрыты обе поверхности.
+- **частотность:** пресеты 5 / 10 / 15 / 30 / 60 мин, хранится как
+  `intervalMinutes: Int`, применяется на лету (перезапуск `Scheduler`)
+- **где показывать:** `showInMenuBar` / `showInDock` (по умолчанию обе). Скрыть
+  можно каждую; если скрыты обе - окно настроек открывается при запуске уже
+  запущенного приложения (reopen) и на старте
+- **версия:** `CFBundleShortVersionString` из Info.plist (правится через `VERSION`
+  в `build-dmg.sh`), показывается в панели «О программе»
 
 **8. Автозапуск.** `SMAppService.mainApp.register()` (macOS 13+).
 - **риск:** для незаверенного приложения регистрация капризна; если не заведётся -
@@ -118,35 +132,39 @@ protocol TipProvider { func nextTip() async throws -> String }
 
 ## структура проекта
 
+SPM executable (`Package.swift`, swift-tools 5.9, macOS 13+), без xcodeproj.
+Ресурсы через `.process("Resources")`. Сборка: `swift run` (dev),
+`scripts/build-dmg.sh` (.app + .dmg).
+
 ```
 clippy-mac/
-  PLAN.md
-  README.md
-  ClippyMac.xcodeproj              # macOS App target, LSUIElement=YES
-  Sources/
-    ClippyMacApp.swift             # @main App + MenuBarExtra + AppDelegate
-    ClippyPanel.swift              # конфиг NSPanel
-    ClippyView.swift               # композиция скрепыш + баллон
-    SpriteAnimator.swift           # плеер кадров
-    ClippyAgent.swift              # модели + парсинг clippy_agent.json
+  Package.swift                    # SPM executable, resources: .process("Resources")
+  PLAN.md  README.md  LICENSE
+  scripts/build-dmg.sh             # release -> .app (Info.plist, иконка) -> ad-hoc -> .dmg
+  .github/workflows/ci.yml         # swift build + CLIPPY_SELFTEST=1 + release
+  assets/AppIcon.png .icns         # иконка приложения
+  Sources/ClippyMac/
+    main.swift                     # точка входа: self-check, затем NSApplication+AppDelegate
+    ClippyMacApp.swift             # AppDelegate + NSStatusItem/меню/About + ClippyControls/SettingsRootView
+    ClippyPanel.swift              # конфиг NSPanel (overlay)
+    ClippyImageView.swift          # NSImageView: клик/перетаскивание/контекстное меню
+    SpriteAnimator.swift           # плеер кадров + branching + звук
+    ClippyAgent.swift              # модели + парсинг clippy_agent.json + кроп кадра
     SpeechBubbleView.swift         # SwiftUI баллон
     ActivityMonitor.swift          # lock/sleep/screensaver/idle
     Scheduler.swift                # таймер + джиттер
-    Settings.swift                 # UserDefaults
+    Settings.swift                 # AppSettings над UserDefaults
     TipProvider.swift              # protocol + LocalJSONProvider
-    Providers/
-      OllamaProvider.swift
-      ClaudeProvider.swift
-      RSSProvider.swift
-      FactsAPIProvider.swift
-  Resources/
-    clippy_map.png                 # спрайтшит из ClippyJS
-    clippy_agent.json              # тайминги кадров (конверт из agent.js)
-    tips.json                      # стартовые факты/советы
+    NetworkProviders.swift         # Ollama / Claude / RSS / FactsAPI
+    LoginItem.swift                # автозапуск (SMAppService/LaunchAgent)
+    SelfCheck.swift                # CLIPPY_SELFTEST=1: проверка ассетов без GUI
+    Resources/
+      clippy_map.png               # спрайтшит из ClippyJS
+      clippy_agent.json            # тайминги кадров (конверт из agent.js)
+      menubar.png                  # скрепыш для иконки в трее (фон убран)
+      tips.json                    # локальные факты/советы
+      sounds/1.mp3 … 15.mp3        # озвучка анимаций
 ```
-
-каркас проще всего создать как macOS App в Xcode (File > New > Project). Как
-альтернатива из кода - XcodeGen/Tuist по `project.yml`.
 
 ## этапы и декомпозиция (MVP -> расширения)
 
@@ -277,15 +295,20 @@ clippy-mac/
 - другие персонажи (Merlin, Links) - частично закрывается пунктом 9
 
 прочее отложенное:
-- **наполнить `tips.json`** реальным контентом (сейчас 10 временных плейсхолдеров)
-- отдельное окно настроек с UI (сейчас всё в меню трея; там же ввод «своего
-  интервала» и ключа/эндпоинта провайдеров)
+- **наполнить `tips.json`** реальным контентом (в работе: выбираем стиль, потом
+  пишем много фактов; сейчас 10 временных плейсхолдеров)
+- ввод «своего интервала» и ключа/эндпоинта провайдеров прямо в окне настроек
+  (сейчас окно настроек есть, но эти поля - через env-переменные)
 - цепочка фолбэков между провайдерами контента
 - релизная подпись Developer ID + нотаризация (раздача без Gatekeeper-предупреждений)
 - **иконку/шапку добавить в другие репозитории владельца** (какие - уточнить)
 - **решение по ассетам Microsoft перед публичной публикацией**: оставить в репо
   с дисклеймером или скачивать скриптом при сборке (сейчас лежат в репо, для
   личного использования)
+
+сделано после MVP: окно настроек (AppKit `NSWindow` + SwiftUI `Form`), нативное
+меню трея на `NSStatusItem`, панель «О программе» с версией, видимость
+дока/трея, версионирование `1.0.0`.
 
 ## иконка
 
@@ -301,5 +324,6 @@ clippy-mac/
 
 ## следующий шаг
 
-MVP (P0-P5), оживление (P6), подготовка к публикации и иконка готовы.
-на паузе; всё оставшееся зафиксировано в бэклоге выше.
+MVP (P0-P5), оживление (P6), публикация, иконка, UI (меню/окно настроек/About/
+версия) готовы. Текущее: наполнить `tips.json` реальными фактами - сначала выбрать
+стиль, затем написать много фактов в этом стиле. Остальное - в бэклоге выше.
