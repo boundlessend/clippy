@@ -58,11 +58,8 @@ struct ClaudeProvider: TipProvider {
     let apiKey: String
     let model: String
 
-    init(model: String = "claude-haiku-4-5-20251001") throws {
-        guard let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty else {
-            throw AssetError.missing("ANTHROPIC_API_KEY (env)")
-        }
-        self.apiKey = key
+    init(apiKey: String, model: String = "claude-haiku-4-5-20251001") {
+        self.apiKey = apiKey
         self.model = model
     }
 

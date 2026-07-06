@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-// общий набор контролов для окна настроек
+// набор контролов для окна настроек
 struct ClippyControls: View {
     let delegate: AppDelegate
     @ObservedObject private var settings = AppSettings.shared
@@ -11,14 +11,12 @@ struct ClippyControls: View {
         Button("Проиграть жест") { delegate.playGesture() }
         Divider()
         Toggle("Включён", isOn: $settings.enabled)
-        Picker("Частота", selection: $settings.intervalMinutes) {
-            ForEach(AppSettings.intervalPresets, id: \.self) { Text("\($0) мин").tag($0) }
+        // частота: произвольное число минут
+        Stepper(value: $settings.intervalMinutes, in: 1...1440) {
+            Text("Частота: \(settings.intervalMinutes) мин")
         }
         Picker("Размер", selection: $settings.scale) {
             ForEach(AppSettings.scalePresets, id: \.self) { Text(String(format: "×%g", $0)).tag($0) }
-        }
-        Picker("Источник", selection: $settings.providerKind) {
-            ForEach(ProviderKind.allCases) { Text($0.title).tag($0) }
         }
         Toggle("Звук", isOn: Binding(get: { !settings.muted }, set: { settings.muted = !$0 }))
         Toggle("Показывать при простое", isOn: $settings.showWhenIdle)
@@ -27,6 +25,13 @@ struct ClippyControls: View {
             set: { setLoginItem($0) }
         ))
         Divider()
+        // источник контента + поля выбранного источника
+        Picker("Источник", selection: $settings.providerKind) {
+            ForEach(ProviderKind.allCases) { Text($0.title).tag($0) }
+        }
+        providerFields
+        if settings.providerKind == .local { categoryToggles }
+        Divider()
         Toggle("Показывать в меню-баре", isOn: $settings.showInMenuBar)
             .onChange(of: settings.showInMenuBar) { _ in delegate.updateStatusItem() }
         Toggle("Показывать в доке", isOn: $settings.showInDock)
@@ -34,16 +39,44 @@ struct ClippyControls: View {
         Divider()
         Button("Выход") { NSApplication.shared.terminate(nil) }
     }
+
+    // поля настроек под выбранный источник (ключ Claude - через SecureField)
+    @ViewBuilder private var providerFields: some View {
+        switch settings.providerKind {
+        case .ollama:
+            TextField("Адрес Ollama", text: $settings.ollamaURL)
+            TextField("Модель Ollama", text: $settings.ollamaModel)
+        case .claude:
+            SecureField("Ключ Claude API", text: $settings.claudeKey)
+        case .rss:
+            TextField("Адрес RSS-ленты", text: $settings.rssURL)
+        case .local, .facts:
+            EmptyView()
+        }
+    }
+
+    // категории локальных фактов (действуют для источника «Локальные советы»)
+    @ViewBuilder private var categoryToggles: some View {
+        Text("Категории фактов").font(.caption).foregroundStyle(.secondary)
+        ForEach(AppSettings.tipCategories) { cat in
+            Toggle(cat.title, isOn: Binding(
+                get: { settings.enabledCategories.contains(cat.key) },
+                set: { on in
+                    if on { settings.enabledCategories.insert(cat.key) }
+                    else { settings.enabledCategories.remove(cat.key) }
+                }))
+        }
+    }
 }
 
-// компактная панель настроек: и как выпадашка из трея, и как фолбэк-окно
+// панель настроек для окна
 struct SettingsRootView: View {
     let delegate: AppDelegate
 
     var body: some View {
         Form { ClippyControls(delegate: delegate) }
-            .frame(width: 280)
-            .frame(maxHeight: 460)
+            .frame(width: 320)
+            .frame(maxHeight: 520)
     }
 }
 
@@ -62,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: ActivityMonitor?
     private var scheduler: Scheduler?
     private var builtScale: Double = 0                // масштаб, с которым построена панель
+    private var builtCategories: Set<String> = []     // категории, с которыми построен localProvider
     private var settingsWindow: NSWindow?
     private var statusItem: NSStatusItem?
 
@@ -168,11 +202,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hosting = NSHostingController(rootView: SettingsRootView(delegate: self))
             hosting.sizingOptions = []                 // не навязывать окну размер контента
             let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 300, height: 430),
+                contentRect: NSRect(x: 0, y: 0, width: 340, height: 500),
                 styleMask: [.titled, .closable, .resizable],
                 backing: .buffered, defer: false)
             w.contentViewController = hosting
-            w.setContentSize(NSSize(width: 300, height: 430))
+            w.setContentSize(NSSize(width: 340, height: 500))
             w.title = "Настройки Clippy"
             w.isReleasedWhenClosed = false
             w.center()
@@ -217,11 +251,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let panel, let animator else { return }
 
         Task { @MainActor in
-            let tip: String
-            do {
-                tip = try await self.provider(for: AppSettings.shared.providerKind).nextTip()
-            } catch {
-                NSLog("clippy: tip error \(error)")
+            guard let tip = await self.fetchTip() else {
+                NSLog("clippy: ни один провайдер не дал совет")
                 return
             }
             self.hideWork?.cancel()
@@ -242,22 +273,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduleHide(after: bubbleSeconds)
     }
 
+    // фолбэк-цепочка: выбранный провайдер, при ошибке - локальный (он всегда отдаёт факт)
+    private func fetchTip() async -> String? {
+        var chain = [AppSettings.shared.providerKind]
+        if !chain.contains(.local) { chain.append(.local) }
+        for kind in chain {
+            do { return try await provider(for: kind).nextTip() }
+            catch { NSLog("clippy: провайдер \(kind.rawValue) не сработал: \(error)") }
+        }
+        return nil
+    }
+
+    // настройки провайдеров берём из UI (Keychain для ключа Claude), с фолбэком на env
     private func provider(for kind: ProviderKind) throws -> TipProvider {
+        let s = AppSettings.shared
         let env = ProcessInfo.processInfo.environment
         switch kind {
         case .local:
-            if localProvider == nil { localProvider = try LocalJSONProvider() }
+            if localProvider == nil || builtCategories != s.enabledCategories {
+                localProvider = try LocalJSONProvider(enabled: s.enabledCategories)
+                builtCategories = s.enabledCategories
+            }
             return localProvider!
         case .ollama:
-            let url = URL(string: env["CLIPPY_OLLAMA_URL"] ?? "http://localhost:11434/api/generate")!
-            return OllamaProvider(endpoint: url, model: env["CLIPPY_OLLAMA_MODEL"] ?? "llama3.2")
+            let urlStr = s.ollamaURL.isEmpty
+                ? (env["CLIPPY_OLLAMA_URL"] ?? "http://localhost:11434/api/generate") : s.ollamaURL
+            guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
+            let model = s.ollamaModel.isEmpty ? (env["CLIPPY_OLLAMA_MODEL"] ?? "llama3.2") : s.ollamaModel
+            return OllamaProvider(endpoint: url, model: model)
         case .claude:
-            return try ClaudeProvider()
+            let key = s.claudeKey.isEmpty ? (env["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
+            guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
+            return ClaudeProvider(apiKey: key)
         case .facts:
             return FactsAPIProvider()
         case .rss:
-            guard let s = env["CLIPPY_RSS_URL"], let url = URL(string: s) else {
-                throw AssetError.missing("CLIPPY_RSS_URL (env)")
+            let feed = s.rssURL.isEmpty ? (env["CLIPPY_RSS_URL"] ?? "") : s.rssURL
+            guard !feed.isEmpty, let url = URL(string: feed) else {
+                throw AssetError.missing("адрес RSS (в настройках)")
             }
             return RSSProvider(feedURL: url)
         }

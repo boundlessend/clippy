@@ -16,18 +16,50 @@ enum ProviderKind: String, CaseIterable, Identifiable {
     }
 }
 
+// категории локальных фактов (ключ совпадает с ключом в tips.json)
+struct TipCategory: Identifiable {
+    let key: String
+    let title: String
+    var id: String { key }
+}
+
 final class AppSettings: ObservableObject {
     nonisolated(unsafe) static let shared = AppSettings()
 
-    static let intervalPresets = [5, 10, 15, 30, 60]
     static let scalePresets: [Double] = [0.5, 0.75, 1.0, 1.5, 2.0]
+    static let tipCategories: [TipCategory] = [
+        .init(key: "persona", title: "Про скрепыша"),
+        .init(key: "retro", title: "Ретро-техника"),
+        .init(key: "history", title: "История техники"),
+        .init(key: "internet", title: "Интернет"),
+        .init(key: "science", title: "Наука и природа"),
+        .init(key: "care", title: "Советы и забота"),
+    ]
+    static var allCategoryKeys: Set<String> { Set(tipCategories.map(\.key)) }
 
-    @Published var intervalMinutes: Int { didSet { d.set(intervalMinutes, forKey: K.interval) } }
+    // частота показа: произвольное число минут, но не меньше 1
+    @Published var intervalMinutes: Int {
+        didSet {
+            if intervalMinutes < 1 { intervalMinutes = 1; return }
+            d.set(intervalMinutes, forKey: K.interval)
+        }
+    }
     @Published var enabled: Bool { didSet { d.set(enabled, forKey: K.enabled) } }
     @Published var showWhenIdle: Bool { didSet { d.set(showWhenIdle, forKey: K.showWhenIdle) } }
     @Published var providerKind: ProviderKind { didSet { d.set(providerKind.rawValue, forKey: K.provider) } }
     @Published var scale: Double { didSet { d.set(scale, forKey: K.scale) } }
     @Published var muted: Bool { didSet { d.set(muted, forKey: K.muted) } }
+
+    // настройки провайдеров (не секреты - в UserDefaults; ключ Claude - в Keychain)
+    @Published var ollamaURL: String { didSet { d.set(ollamaURL, forKey: K.ollamaURL) } }
+    @Published var ollamaModel: String { didSet { d.set(ollamaModel, forKey: K.ollamaModel) } }
+    @Published var rssURL: String { didSet { d.set(rssURL, forKey: K.rssURL) } }
+    @Published var claudeKey: String { didSet { Keychain.set(claudeKey, account: K.claudeKey) } }
+
+    // включённые категории локальных фактов
+    @Published var enabledCategories: Set<String> {
+        didSet { d.set(Array(enabledCategories), forKey: K.categories) }
+    }
 
     // где показывать приложение (можно скрыть и там, и там; если скрыто всё -
     // окно настроек открывается при запуске уже запущенного приложения)
@@ -52,6 +84,11 @@ final class AppSettings: ObservableObject {
         static let provider = "providerKind"
         static let scale = "scale"
         static let muted = "muted"
+        static let ollamaURL = "ollamaURL"
+        static let ollamaModel = "ollamaModel"
+        static let rssURL = "rssURL"
+        static let claudeKey = "anthropic-api-key"      // account в Keychain
+        static let categories = "enabledCategories"
         static let showInMenuBar = "showInMenuBar"
         static let showInDock = "showInDock"
         static let snooze = "snoozeUntil"
@@ -65,6 +102,9 @@ final class AppSettings: ObservableObject {
             K.interval: 10, K.enabled: true, K.showWhenIdle: false,
             K.provider: ProviderKind.local.rawValue,
             K.scale: 1.0, K.muted: true,
+            K.ollamaURL: "http://localhost:11434/api/generate",
+            K.ollamaModel: "llama3.2",
+            K.rssURL: "",
             K.showInMenuBar: true, K.showInDock: true,
         ])
         intervalMinutes = d.integer(forKey: K.interval)
@@ -73,6 +113,11 @@ final class AppSettings: ObservableObject {
         providerKind = ProviderKind(rawValue: d.string(forKey: K.provider) ?? "") ?? .local
         scale = d.double(forKey: K.scale)
         muted = d.bool(forKey: K.muted)
+        ollamaURL = d.string(forKey: K.ollamaURL) ?? "http://localhost:11434/api/generate"
+        ollamaModel = d.string(forKey: K.ollamaModel) ?? "llama3.2"
+        rssURL = d.string(forKey: K.rssURL) ?? ""
+        claudeKey = Keychain.get(account: K.claudeKey) ?? ""
+        enabledCategories = d.stringArray(forKey: K.categories).map(Set.init) ?? Self.allCategoryKeys
         showInMenuBar = d.bool(forKey: K.showInMenuBar)
         showInDock = d.bool(forKey: K.showInDock)
         snoozeUntil = d.double(forKey: K.snooze)

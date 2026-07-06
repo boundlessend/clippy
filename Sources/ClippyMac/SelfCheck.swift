@@ -29,9 +29,12 @@ func runSelfCheckIfRequested() {
         guard let turl = Bundle.module.url(forResource: "tips", withExtension: "json") else {
             fatalError("tips.json missing")
         }
-        let tips = try JSONDecoder().decode([String].self, from: Data(contentsOf: turl))
+        let byCat = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: turl))
+        let tips = byCat.values.flatMap { $0 }
         precondition(!tips.isEmpty && tips.allSatisfy { !$0.isEmpty }, "tips must be non-empty")
-        _ = try LocalJSONProvider()
+        precondition(AppSettings.allCategoryKeys.isSubset(of: Set(byCat.keys)),
+                     "tips.json missing a category")
+        _ = try LocalJSONProvider(enabled: AppSettings.allCategoryKeys)
 
         // иконка меню-бара присутствует и грузится
         guard let micon = Bundle.module.url(forResource: "menubar", withExtension: "png"),
