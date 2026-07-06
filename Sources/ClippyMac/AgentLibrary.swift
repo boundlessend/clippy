@@ -20,18 +20,29 @@ func agentsFolder() -> URL {
     return dir
 }
 
-// встроенный Clippy + валидные подпапки (имя папки = имя персонажа), по алфавиту
+// встроенный Clippy + персонажи из бандла (в комплекте) + пользовательские из папки Agents.
+// пользовательская папка с тем же именем перекрывает встроенную в бандл
 func discoverAgents() -> [AgentRef] {
+    var seen = Set([builtInAgentName])
+    var refs = [AgentRef(name: builtInAgentName, directory: nil)]
+    let bundled = Bundle.module.url(forResource: "BundledAgents", withExtension: nil)
+        .map { validAgents(in: $0) } ?? []
+    for ref in validAgents(in: agentsFolder()) + bundled where seen.insert(ref.name).inserted {
+        refs.append(ref)
+    }
+    return refs
+}
+
+// валидные подпапки (agent.json + map.png), имя папки = имя персонажа, по алфавиту
+private func validAgents(in folder: URL) -> [AgentRef] {
     let fm = FileManager.default
     let subdirs = (try? fm.contentsOfDirectory(
-        at: agentsFolder(), includingPropertiesForKeys: nil,
-        options: [.skipsHiddenFiles])) ?? []
-    let custom = subdirs
+        at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+    return subdirs
         .filter { dir in
             fm.fileExists(atPath: dir.appendingPathComponent("agent.json").path)
                 && fm.fileExists(atPath: dir.appendingPathComponent("map.png").path)
         }
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
         .map { AgentRef(name: $0.lastPathComponent, directory: $0) }
-    return [AgentRef(name: builtInAgentName, directory: nil)] + custom
 }

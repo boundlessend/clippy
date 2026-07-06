@@ -336,9 +336,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let env = ProcessInfo.processInfo.environment
         switch kind {
         case .local:
-            if localProvider == nil || builtCategories != s.enabledCategories {
-                localProvider = try LocalJSONProvider(enabled: s.enabledCategories)
-                builtCategories = s.enabledCategories
+            // факты категории «persona» - только про Clippy; другим персонажам их не даём
+            // (отдельные факты для каждого персонажа - в бэклоге)
+            var cats = s.enabledCategories
+            if s.activeAgent != builtInAgentName {
+                cats.remove("persona")
+                // пустой набор в LocalJSONProvider = все категории, поэтому подставим общие
+                if cats.isEmpty { cats = AppSettings.allCategoryKeys.subtracting(["persona"]) }
+            }
+            if localProvider == nil || builtCategories != cats {
+                localProvider = try LocalJSONProvider(enabled: cats)
+                builtCategories = cats
             }
             return localProvider!
         case .ollama:

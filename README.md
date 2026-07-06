@@ -27,7 +27,7 @@
 - **a fact on click** - left-click the Dock icon and a fresh tip appears in a speech bubble beside it.
 - **Dock-aware bubble** - the bubble sits next to the icon and its tail points at the Dock, wherever the Dock is (bottom / left / right).
 - **Dock menu** - right-click the Dock icon: Show a fact / Settings… / About.
-- **characters** - built-in Clippy plus custom characters dropped into the `Agents` folder (each a subfolder with `agent.json` + `map.png`); switch in Settings. Multi-layer sprites are composited, so full Microsoft Agent characters render correctly.
+- **characters** - Clippy plus five more in the box (Merlin, Genie, Bonzi, Links, Rover), and any custom character dropped into the `Agents` folder (a subfolder with `agent.json` + `map.png`); switch in Settings. Multi-layer sprites are composited, so full Microsoft Agent characters render correctly. Facts are Clippy's for now; other characters show only the general tips (per-character lines are planned).
 - **content** - ~600 built-in lines in Clippy's own voice, filterable by category, plus Ollama / Claude / RSS / facts-API providers with an automatic fallback to local.
 - **sound** - the original animation voices (off by default).
 - **menu bar (optional)** - an optional tray icon with the same menu, off by default, in case the Dock is hidden.

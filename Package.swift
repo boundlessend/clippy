@@ -8,7 +8,7 @@ let package = Package(
         .executableTarget(
             name: "ClippyMac",
             path: "Sources/ClippyMac",
-            resources: [.process("Resources")]
+            resources: [.process("Resources"), .copy("BundledAgents")]
         )
     ]
 )

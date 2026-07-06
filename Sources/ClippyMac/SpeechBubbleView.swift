@@ -11,8 +11,8 @@ struct SpeechBubbleView: View {
             .font(.system(size: 13))
             .foregroundStyle(.black)
             .multilineTextAlignment(.leading)
-            .frame(maxWidth: 220, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
+            .fixedSize(horizontal: false, vertical: true)   // высота растёт под текст
+            .frame(width: 220, alignment: .leading)         // фикс. ширина -> однозначный размер (иначе клип)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .padding(edgePadding, tail)                 // запас под хвостик со стороны дока
@@ -22,7 +22,6 @@ struct SpeechBubbleView: View {
                     .overlay(BubbleShape(tail: tail, dock: dock).stroke(.black.opacity(0.25), lineWidth: 1))
             )
             .padding(6)                                 // запас под обводку внутри панели
-            .fixedSize()                                // плотный размер для NSHostingView
     }
 
     // хвостик смотрит в сторону дока: низ дока -> вниз, слева -> влево, справа -> вправо
