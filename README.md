@@ -67,13 +67,11 @@ Pick the source in Settings. Provider fields live there too (the Claude key is s
 
 ## Development
 
-Verify the logic without a GUI (sprite parsing, frame cropping, branching, sounds, jitter bounds, content):
+Verify the logic without a GUI (sprite parsing, frame cropping, branching, sounds, bubble placement, content):
 
 ```bash
 CLIPPY_SELFTEST=1 swift run
 ```
-
-Frequency debugging: `CLIPPY_INTERVAL_SEC`, `CLIPPY_FIRST_DELAY_SEC`.
 
 Import a [ClippyJS](https://github.com/smore-inc/clippy.js) character (its `map.png` + `agent.js` + optional `sounds-mp3.js`) into the `Agents` folder, then pick it in Settings:
 

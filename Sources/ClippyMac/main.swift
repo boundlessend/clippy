@@ -1,7 +1,7 @@
 import AppKit
 
 // точка входа: сперва возможный self-check (без запуска GUI, дружит с headless CI),
-// затем само приложение на чистом AppKit (NSStatusItem надёжнее SwiftUI MenuBarExtra)
+// затем само приложение на чистом AppKit (NSApplication + AppDelegate, без SwiftUI App)
 runSelfCheckIfRequested()
 
 MainActor.assumeIsolated {

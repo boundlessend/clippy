@@ -1,6 +1,6 @@
 import Foundation
 
-// настройки в UserDefaults. общий экземпляр для меню трея и планировщика.
+// настройки в UserDefaults. общий экземпляр для окна настроек и делегата.
 // ponytail: nonisolated(unsafe) shared - осознанно; доступ только с main-потока
 enum ProviderKind: String, CaseIterable, Identifiable {
     case local, ollama, claude, facts, rss

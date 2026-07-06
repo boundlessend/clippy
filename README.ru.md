@@ -67,13 +67,11 @@ swift run
 
 ## Разработка
 
-Проверка логики без GUI (парсинг спрайтов, кроп кадров, branching, звуки, границы джиттера, контент):
+Проверка логики без GUI (парсинг спрайтов, кроп кадров, branching, звуки, позиция облачка, контент):
 
 ```bash
 CLIPPY_SELFTEST=1 swift run
 ```
-
-Отладка частоты: `CLIPPY_INTERVAL_SEC`, `CLIPPY_FIRST_DELAY_SEC`.
 
 Импорт персонажа [ClippyJS](https://github.com/smore-inc/clippy.js) (его `map.png` + `agent.js` + опц. `sounds-mp3.js`) в папку `Agents`, затем выбор в настройках:
 
