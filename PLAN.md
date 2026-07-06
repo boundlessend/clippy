@@ -141,6 +141,7 @@ clippy-mac/
   Package.swift                    # SPM executable, resources: .process("Resources")
   PLAN.md  README.md  LICENSE
   scripts/build-dmg.sh             # release -> .app (Info.plist, иконка) -> ad-hoc -> .dmg
+  scripts/import-clippyjs.py       # персонаж ClippyJS -> папка Agents (map.png+agent.js+звуки)
   .github/workflows/ci.yml         # swift build + CLIPPY_SELFTEST=1 + release
   assets/AppIcon.png .icns         # иконка приложения
   Sources/ClippyMac/
@@ -294,8 +295,12 @@ clippy-mac/
   каждая подпапка (`agent.json` + `map.png` + опц. `sounds/`) = персонаж; выбор в
   настройках, «Папка персонажей» (Finder) и «Обновить список». Битые папки
   пропускаются, при пропаже активного - откат на встроенного (`AgentLibrary.swift`)
-- **10** конвертер `.acs` (любой Microsoft Agent персонаж), по мотивам `agent-convert.sh`
-  - теперь его выход кладётся прямо в папку Agents и подхватывается пунктом 9
+- ~~**10** конвертер персонажей~~ сделано: `scripts/import-clippyjs.py` - персонаж
+  ClippyJS (`map.png` + `agent.js` + опц. `sounds-mp3.js`) -> папка Agents (пункт 9).
+  Проверено на Merlin (73 анимации, 32 звука). Формат `.acs` (проприетарный бинарь
+  Microsoft Agent) не брали: ClippyJS-персонажи уже в нужном формате, под MIT, и
+  конвертер тестируем сразу. Рендер научился складывать несколько оверлеев кадра
+  (`overlayCount>1`, как у Merlin) - раньше брался только первый слой
 - ~~**11** MoveTo / GestureAt~~ сделано: «Прогуляться» (меню трея/контекст/настройки).
   Move-анимаций у спрайтшита нет, поэтому скольжение окном + `Look*` в сторону хода,
   по прибытии `Gesture*` в центр экрана. Направление - pure `directionalAnimation`,
@@ -339,6 +344,6 @@ clippy-mac/
 MVP (P0-P5), оживление (P6), публикация, иконка, UI (меню/окно настроек/About/
 версия), 598 локальных фактов по категориям, свой интервал, поля провайдеров +
 фолбэк, двуязычный README, ходьба по экрану («Прогуляться»), кастомные персонажи
-из папки Agents - готовы. Осталось из бэклога: пункт 10 (конвертер `.acs`, кладёт
-результат в папку Agents), подпись Developer ID + нотаризация, решение по ассетам
-Microsoft перед публичной публикацией.
+из папки Agents, импорт персонажей ClippyJS - готовы. Весь бэклог фич закрыт.
+Осталось только про публикацию (проект «только для себя», поэтому отложено):
+подпись Developer ID + нотаризация, решение по ассетам Microsoft.

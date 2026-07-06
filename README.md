@@ -80,6 +80,12 @@ CLIPPY_SELFTEST=1 swift run
 
 Frequency debugging: `CLIPPY_INTERVAL_SEC`, `CLIPPY_FIRST_DELAY_SEC`.
 
+Import a [ClippyJS](https://github.com/smore-inc/clippy.js) character (its `map.png` + `agent.js` + optional `sounds-mp3.js`) into the `Agents` folder, then pick it in Settings:
+
+```bash
+python3 scripts/import-clippyjs.py <clippyjs-character-folder> [Name]
+```
+
 Plan and backlog live in [PLAN.md](PLAN.md).
 
 ## Credits & assets

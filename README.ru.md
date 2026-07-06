@@ -80,6 +80,12 @@ CLIPPY_SELFTEST=1 swift run
 
 Отладка частоты: `CLIPPY_INTERVAL_SEC`, `CLIPPY_FIRST_DELAY_SEC`.
 
+Импорт персонажа [ClippyJS](https://github.com/smore-inc/clippy.js) (его `map.png` + `agent.js` + опц. `sounds-mp3.js`) в папку `Agents`, затем выбор в настройках:
+
+```bash
+python3 scripts/import-clippyjs.py <папка-персонажа-clippyjs> [Имя]
+```
+
 План и бэклог - в [PLAN.md](PLAN.md).
 
 ## Credits & assets

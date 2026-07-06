@@ -63,12 +63,26 @@ final class SpriteAnimator {
     }
 
     private func render(_ frame: Frame) {
-        guard let point = frame.images?.first,
-              let cg = cropFrame(sheet: sheet, at: point, frameSize: agent.frameSize) else {
+        // кадр может состоять из нескольких оверлеев (overlayCount>1) - рисуем стопкой
+        let layers = (frame.images ?? []).compactMap {
+            cropFrame(sheet: sheet, at: $0, frameSize: agent.frameSize)
+        }
+        guard let first = layers.first else {
             imageView.image = nil                              // пустой кадр
             return
         }
-        imageView.image = NSImage(cgImage: cg, size: agent.frameSize)
+        if layers.count == 1 {
+            imageView.image = NSImage(cgImage: first, size: agent.frameSize)
+            return
+        }
+        let composed = NSImage(size: agent.frameSize)
+        composed.lockFocus()
+        let rect = NSRect(origin: .zero, size: agent.frameSize)
+        for layer in layers {                                  // порядок массива: первый снизу
+            NSImage(cgImage: layer, size: agent.frameSize).draw(in: rect)
+        }
+        composed.unlockFocus()
+        imageView.image = composed
     }
 
     private func playSound(_ frame: Frame) {
