@@ -9,6 +9,7 @@ struct ClippyControls: View {
     var body: some View {
         Button("Показать сейчас") { delegate.showClippy() }
         Button("Проиграть жест") { delegate.playGesture() }
+        Button("Прогуляться") { delegate.walk() }
         Divider()
         Toggle("Включён", isOn: $settings.enabled)
         // частота: произвольное число минут
@@ -98,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var builtCategories: Set<String> = []     // категории, с которыми построен localProvider
     private var settingsWindow: NSWindow?
     private var statusItem: NSStatusItem?
+    private var walkToken = 0                          // растёт при новой прогулке/скрытии, гасит старую
 
     // сам скрепыш (с иконки, без фона) для меню-бара; фолбэк - SF-скрепка
     private static let menuBarImage: NSImage = {
@@ -157,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let m = NSMenu()
         m.addItem(withTitle: "Показать сейчас", action: #selector(miShow), keyEquivalent: "")
         m.addItem(withTitle: "Проиграть жест", action: #selector(miGesture), keyEquivalent: "")
+        m.addItem(withTitle: "Прогуляться", action: #selector(miWalk), keyEquivalent: "")
         m.addItem(.separator())
         m.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
         m.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
@@ -183,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func miShow() { showClippy() }
     @objc private func miGesture() { playGesture() }
+    @objc private func miWalk() { walk() }
     @objc private func miSettings() { showSettings() }
     @objc private func miQuit() { NSApp.terminate(nil) }
     @objc private func miAbout() {
@@ -282,6 +286,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduleHide(after: bubbleSeconds)
     }
 
+    // прогулка: скрепыш идёт в случайную точку экрана и там жестикулирует.
+    // Move-анимаций у спрайтшита нет, поэтому смотрим в сторону хода и скользим окном
+    func walk() {
+        if panel == nil || builtScale != AppSettings.shared.scale { rebuildPanel() }
+        guard let panel, let animator, let screen = NSScreen.main else { return }
+        hideWork?.cancel()                            // прогулка не прячется по таймеру
+        if !panel.isVisible {
+            positionPanel(panel)
+            panel.orderFrontRegardless()
+        }
+        let from = panel.frame.origin
+        let target = randomWalkOrigin(in: screen.visibleFrame, panelSize: panel.frame.size, margin: 24)
+        // взгляд в сторону движения на время пути
+        animator.play(directionalAnimation(prefix: "Look", from: from, to: target)) {
+            [weak animator] in animator?.loopIdle()
+        }
+        movePanel(panel, to: target) { [weak self] in
+            guard let self, let animator = self.animator else { return }
+            // придя, жестикулируем в сторону центра экрана
+            let vf = screen.visibleFrame
+            let center = NSPoint(x: vf.midX, y: vf.midY)
+            let panelCenter = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
+            animator.play(directionalAnimation(prefix: "Gesture", from: panelCenter, to: center)) {
+                [weak animator] in animator?.loopIdle()
+            }
+        }
+    }
+
+    // плавно двигать панель к точке пошагово (~12 pt/шаг, 60 fps)
+    // ponytail: линейная интерполяция окна вместо Move-спрайтов, которых нет в агенте
+    private func movePanel(_ panel: NSPanel, to target: NSPoint, then: @escaping () -> Void) {
+        let from = panel.frame.origin
+        let steps = max(1, Int(hypot(target.x - from.x, target.y - from.y) / 12))
+        walkToken += 1
+        let myToken = walkToken
+        func stepOnce(_ i: Int) {
+            guard myToken == walkToken else { return }        // перебито новой прогулкой/скрытием
+            let t = CGFloat(i) / CGFloat(steps)
+            panel.setFrameOrigin(NSPoint(x: from.x + (target.x - from.x) * t,
+                                         y: from.y + (target.y - from.y) * t))
+            if i >= steps { AppSettings.shared.position = target; then(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { stepOnce(i + 1) }
+        }
+        stepOnce(1)
+    }
+
     // фолбэк-цепочка: выбранный провайдер, при ошибке - локальный (он всегда отдаёт факт)
     private func fetchTip() async -> String? {
         var chain = [AppSettings.shared.providerKind]
@@ -371,6 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let m = NSMenu()
         m.addItem(withTitle: "Следующий совет", action: #selector(ctxNextTip), keyEquivalent: "")
         m.addItem(withTitle: "Проиграть жест", action: #selector(ctxGesture), keyEquivalent: "")
+        m.addItem(withTitle: "Прогуляться", action: #selector(ctxWalk), keyEquivalent: "")
         m.addItem(.separator())
         m.addItem(withTitle: "Спрятать", action: #selector(ctxHide), keyEquivalent: "")
         m.addItem(withTitle: "Заткнуть на час", action: #selector(ctxSnooze), keyEquivalent: "")
@@ -380,6 +431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func ctxNextTip() { showClippy() }
     @objc private func ctxGesture() { playGesture() }
+    @objc private func ctxWalk() { walk() }
     @objc private func ctxHide() { hideClippy() }
     @objc private func ctxSnooze() {
         AppSettings.shared.snoozeUntil = Date().timeIntervalSince1970 + 3600
@@ -408,6 +460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func hideClippy() {
+        walkToken += 1                        // оборвать прогулку, если шла
         bubblePanel?.orderOut(nil)
         animator?.play("Hide") { [weak self] in self?.panel?.orderOut(nil) }
     }

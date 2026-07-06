@@ -36,6 +36,32 @@ func runSelfCheckIfRequested() {
                      "tips.json missing a category")
         _ = try LocalJSONProvider(enabled: AppSettings.allCategoryKeys)
 
+        // прогулка: направленные анимации выбираются верно и существуют в агенте
+        let o = NSPoint.zero
+        let dirs: [(NSPoint, String, String)] = [
+            (NSPoint(x: 100, y: 0), "GestureRight", "LookRight"),
+            (NSPoint(x: -100, y: 0), "GestureLeft", "LookLeft"),
+            (NSPoint(x: 0, y: 100), "GestureUp", "LookUp"),
+            (NSPoint(x: 0, y: -100), "GestureDown", "LookDown"),
+        ]
+        for (to, gesture, look) in dirs {
+            precondition(directionalAnimation(prefix: "Gesture", from: o, to: to) == gesture,
+                         "wrong gesture for \(to)")
+            precondition(directionalAnimation(prefix: "Look", from: o, to: to) == look,
+                         "wrong look for \(to)")
+            precondition(agent.animations[gesture] != nil && agent.animations[look] != nil,
+                         "missing directional animation \(gesture)/\(look)")
+        }
+        // цель прогулки всегда внутри видимой области
+        let vf = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let psize = NSSize(width: 120, height: 90)
+        for _ in 0..<1000 {
+            let p = randomWalkOrigin(in: vf, panelSize: psize, margin: 24)
+            precondition(p.x >= vf.minX + 24 && p.x <= vf.maxX - psize.width - 24
+                         && p.y >= vf.minY + 24 && p.y <= vf.maxY - psize.height - 24,
+                         "walk target out of bounds: \(p)")
+        }
+
         // иконка меню-бара присутствует и грузится
         guard let micon = Bundle.module.url(forResource: "menubar", withExtension: "png"),
               NSImage(contentsOf: micon) != nil else {

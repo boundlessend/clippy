@@ -29,3 +29,21 @@ func positionBottomRight(_ panel: NSPanel) {
     let y = vf.minY + margin
     panel.setFrameOrigin(NSPoint(x: x, y: y))
 }
+
+// pure: имя направленной анимации (Look*/Gesture*) по вектору from -> to.
+// доминирующая ось задаёт направление; в AppKit y растёт вверх
+func directionalAnimation(prefix: String, from: NSPoint, to: NSPoint) -> String {
+    let dx = to.x - from.x
+    let dy = to.y - from.y
+    if abs(dx) >= abs(dy) { return dx >= 0 ? "\(prefix)Right" : "\(prefix)Left" }
+    return dy >= 0 ? "\(prefix)Up" : "\(prefix)Down"
+}
+
+// pure: случайная позиция окна (левый нижний угол) в пределах видимой области с отступом
+func randomWalkOrigin(in visibleFrame: NSRect, panelSize: NSSize, margin: CGFloat) -> NSPoint {
+    let minX = visibleFrame.minX + margin
+    let maxX = max(minX, visibleFrame.maxX - panelSize.width - margin)
+    let minY = visibleFrame.minY + margin
+    let maxY = max(minY, visibleFrame.maxY - panelSize.height - margin)
+    return NSPoint(x: CGFloat.random(in: minX...maxX), y: CGFloat.random(in: minY...maxY))
+}
