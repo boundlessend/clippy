@@ -153,7 +153,6 @@ clippy-mac/
     Resources/
       clippy_map.png               # спрайтшит из ClippyJS
       clippy_agent.json            # тайминги кадров (конверт из agent.js)
-      menubar.png                  # скрепыш для иконки в трее (фон убран)
       tips.json                    # локальные факты/советы
       sounds/1.mp3 … 15.mp3        # озвучка анимаций
 ```

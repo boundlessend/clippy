@@ -23,7 +23,8 @@ struct LocalJSONProvider: TipProvider {
     }
 
     func nextTip() async throws -> String {
-        tips.randomElement()!            // непусто по инварианту init
+        guard let tip = tips.randomElement() else { throw AssetError.missing("пустой список фактов") }
+        return tip
     }
 }
 
@@ -42,5 +43,8 @@ struct AgentTipsProvider: TipProvider {
         self.tips = list
     }
 
-    func nextTip() async throws -> String { tips.randomElement()! }
+    func nextTip() async throws -> String {
+        guard let tip = tips.randomElement() else { throw AssetError.missing("пустой список фактов") }
+        return tip
+    }
 }

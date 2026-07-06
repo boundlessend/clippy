@@ -36,6 +36,10 @@ final class AppSettings: ObservableObject {
     ]
     static var allCategoryKeys: Set<String> { Set(tipCategories.map(\.key)) }
 
+    // дефолты Ollama (одно место: register-дефолты, init и env-фолбэк в провайдере)
+    static let defaultOllamaURL = "http://localhost:11434/api/generate"
+    static let defaultOllamaModel = "llama3.2"
+
     @Published var enabled: Bool { didSet { d.set(enabled, forKey: K.enabled) } }
     @Published var providerKind: ProviderKind { didSet { d.set(providerKind.rawValue, forKey: K.provider) } }
     @Published var muted: Bool { didSet { d.set(muted, forKey: K.muted) } }
@@ -72,15 +76,15 @@ final class AppSettings: ObservableObject {
             K.enabled: true,
             K.provider: ProviderKind.local.rawValue,
             K.muted: true,
-            K.ollamaURL: "http://localhost:11434/api/generate",
-            K.ollamaModel: "llama3.2",
+            K.ollamaURL: Self.defaultOllamaURL,
+            K.ollamaModel: Self.defaultOllamaModel,
             K.rssURL: "",
         ])
         enabled = d.bool(forKey: K.enabled)
         providerKind = ProviderKind(rawValue: d.string(forKey: K.provider) ?? "") ?? .local
         muted = d.bool(forKey: K.muted)
-        ollamaURL = d.string(forKey: K.ollamaURL) ?? "http://localhost:11434/api/generate"
-        ollamaModel = d.string(forKey: K.ollamaModel) ?? "llama3.2"
+        ollamaURL = d.string(forKey: K.ollamaURL) ?? Self.defaultOllamaURL
+        ollamaModel = d.string(forKey: K.ollamaModel) ?? Self.defaultOllamaModel
         rssURL = d.string(forKey: K.rssURL) ?? ""
         claudeKey = Keychain.get(account: K.claudeKey) ?? ""
         enabledCategories = d.stringArray(forKey: K.categories).map(Set.init) ?? Self.allCategoryKeys

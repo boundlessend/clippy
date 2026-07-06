@@ -56,12 +56,6 @@ func runSelfCheckIfRequested() {
                      "built-in agent missing from library")
         _ = try loadClippyAgent(from: nil)
 
-        // иконка меню-бара присутствует и грузится
-        guard let micon = Bundle.module.url(forResource: "menubar", withExtension: "png"),
-              NSImage(contentsOf: micon) != nil else {
-            fatalError("menubar.png missing or unreadable")
-        }
-
         // branching/exitBranch: все целевые индексы в границах своей анимации
         var soundKeys = Set<String>()
         for (name, anim) in agent.animations {

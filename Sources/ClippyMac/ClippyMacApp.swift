@@ -71,10 +71,13 @@ struct SettingsRootView: View {
 
     var body: some View {
         Form { ClippyControls(delegate: delegate) }
-            .frame(width: 320)
-            .frame(maxHeight: 520)
+            .frame(width: settingsWidth, height: settingsHeight)
     }
 }
+
+// размеры окна настроек - одно место (окно и контент совпадают)
+let settingsWidth: CGFloat = 340
+let settingsHeight: CGFloat = 520
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
@@ -173,11 +176,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             let hosting = NSHostingController(rootView: SettingsRootView(delegate: self))
             hosting.sizingOptions = []                 // не навязывать окну размер контента
             let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 340, height: 500),
+                contentRect: NSRect(x: 0, y: 0, width: settingsWidth, height: settingsHeight),
                 styleMask: [.titled, .closable, .resizable],
                 backing: .buffered, defer: false)
             w.contentViewController = hosting
-            w.setContentSize(NSSize(width: 340, height: 500))
+            w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
             w.title = "Настройки Clippy"
             w.isReleasedWhenClosed = false
             w.center()
@@ -232,9 +235,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 NSLog("clippy: фактов для персонажа нет - облачко не показываем")
                 return
             }
-            self.hideWork?.cancel()
             self.showBubble(tip, anchor: anchor)
-            self.scheduleHide(after: self.bubbleSeconds)
+            self.scheduleHide(after: self.bubbleSeconds)   // сам отменяет прежний таймер
             // короткая реакция персонажа в доке
             self.animator?.play(Self.gestures.randomElement() ?? "Wave") {
                 [weak self] in self?.animator?.loopIdle()
@@ -290,9 +292,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             return try LocalJSONProvider(enabled: s.enabledCategories)
         case .ollama:
             let urlStr = s.ollamaURL.isEmpty
-                ? (env["CLIPPY_OLLAMA_URL"] ?? "http://localhost:11434/api/generate") : s.ollamaURL
+                ? (env["CLIPPY_OLLAMA_URL"] ?? AppSettings.defaultOllamaURL) : s.ollamaURL
             guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
-            let model = s.ollamaModel.isEmpty ? (env["CLIPPY_OLLAMA_MODEL"] ?? "llama3.2") : s.ollamaModel
+            let model = s.ollamaModel.isEmpty
+                ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
             return OllamaProvider(endpoint: url, model: model)
         case .claude:
             let key = s.claudeKey.isEmpty ? (env["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
