@@ -15,6 +15,7 @@ func makeOverlayPanel(contentView: NSView, size: NSSize) -> NSPanel {
     panel.isOpaque = false
     panel.hasShadow = false
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+    panel.ignoresMouseEvents = true          // облачко не интерактивно, клики проходят насквозь
     panel.contentView = contentView
     return panel
 }

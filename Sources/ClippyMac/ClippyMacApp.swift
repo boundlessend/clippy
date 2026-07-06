@@ -21,7 +21,10 @@ struct ClippyControls: View {
             ForEach(ProviderKind.allCases) { Text($0.title).tag($0) }
         }
         providerFields
-        if settings.providerKind == .local { categoryToggles }
+        // категории есть только у встроенного Clippy; для других персонажей не показываем
+        if settings.providerKind == .local && settings.activeAgent == builtInAgentName {
+            categoryToggles
+        }
         Divider()
         // персонаж: встроенный Clippy или папка из ~/…/ClippyMac/Agents
         Picker("Персонаж", selection: $settings.activeAgent) {
@@ -107,13 +110,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         setupDock()                               // анимированный персонаж в доке
     }
 
-    // левый клик по иконке в доке: показать факт (или сфокусировать открытые настройки)
+    // левый клик по иконке в доке: показать факт, но если открыто «настоящее» окно
+    // (настройки/О программе) - пусть система его поднимет, факт не показываем.
+    // облачко (nonactivating-панель, не canBecomeKey) за окно не считаем
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if let w = settingsWindow, w.isVisible {
-            w.makeKeyAndOrderFront(nil)
-        } else {
-            showFact()
+        let hasRealWindow = NSApp.windows.contains {
+            $0.isVisible && $0 !== bubblePanel && $0.canBecomeKey
         }
+        if !hasRealWindow { showFact() }
         return true
     }
 
@@ -132,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         availableAgents = discoverAgents()
         if !availableAgents.contains(where: { $0.name == AppSettings.shared.activeAgent }) {
             AppSettings.shared.activeAgent = builtInAgentName
+            rebuildDockAnimator()          // onChange не сработает на программный сброс
         }
     }
 
@@ -254,7 +259,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let bp = makeOverlayPanel(contentView: host, size: size)
         bubblePanel = bp
 
-        let visible = NSScreen.main?.visibleFrame ?? .zero
+        // экран, на котором кликнули (мультимонитор), иначе главный
+        let screen = NSScreen.screens.first { $0.frame.contains(anchor) } ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? .zero
         bp.setFrameOrigin(bubbleOrigin(anchor: anchor, orientation: orient,
                                        bubbleSize: size, screen: visible))
         bp.orderFrontRegardless()
