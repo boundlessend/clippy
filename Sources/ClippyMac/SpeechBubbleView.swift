@@ -10,8 +10,8 @@ struct SpeechBubbleView: View {
             .font(.system(size: 13))
             .foregroundStyle(.black)
             .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: 220, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
             .padding(.top, 10)
             .padding(.bottom, 10 + tail)
@@ -21,6 +21,7 @@ struct SpeechBubbleView: View {
                     .overlay(BubbleShape(tail: tail).stroke(.black.opacity(0.25), lineWidth: 1))
             )
             .padding(6)                       // запас под обводку внутри панели
+            .fixedSize()                      // плотный размер для NSHostingView (иначе окно во весь экран)
     }
 }
 

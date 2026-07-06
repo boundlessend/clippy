@@ -245,8 +245,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduler.start()
     }
 
-    // сперва получаем совет, затем показываем скрепыша: без совета не всплываем
-    func showClippy() {
+    // показать скрепыша с заданной анимацией и свежим фактом в облачке
+    // (без совета не всплываем; на каждый вызов - новый факт)
+    private func present(animation: String) {
         if panel == nil || builtScale != AppSettings.shared.scale { rebuildPanel() }
         guard let panel, let animator else { return }
 
@@ -256,15 +257,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             self.hideWork?.cancel()
-            self.positionPanel(panel)
-            panel.orderFrontRegardless()
-            animator.play("Show") { [weak animator] in animator?.loopIdle() }
+            if !panel.isVisible {
+                self.positionPanel(panel)
+                panel.orderFrontRegardless()
+            }
+            animator.play(animation) { [weak animator] in animator?.loopIdle() }
             self.showBubble(tip, above: panel)
             self.scheduleHide(after: self.bubbleSeconds)
         }
     }
 
-    // проиграть случайный жест (если скрепыш скрыт - сперва показать с советом)
+    // плановый показ / «Показать сейчас»: анимация появления + факт
+    func showClippy() { present(animation: "Show") }
+
+    // клик по скрепышу: случайный жест + новый факт в облачке
+    func interact() { present(animation: Self.gestures.randomElement() ?? "Wave") }
+
+    // проиграть случайный жест без облачка (пункт меню «Проиграть жест»)
     func playGesture() {
         guard let panel, panel.isVisible, let animator else { showClippy(); return }
         hideWork?.cancel()
@@ -333,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let imageView = ClippyImageView(frame: NSRect(origin: .zero, size: size))
             imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.onClick = { [weak self] in self?.playGesture() }
+            imageView.onClick = { [weak self] in self?.interact() }
             imageView.menu = makeContextMenu()
 
             self.animator = SpriteAnimator(imageView: imageView, sheet: sheet, agent: agent)
