@@ -24,16 +24,15 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
    │     └─ SpriteAnimator (бесконечный idle) -> dockTile.display() каждый кадр
    ├─ applicationShouldHandleReopen (левый клик по доку) -> showFact у иконки
    ├─ applicationDockMenu (правый клик) -> Показать факт / Настройки… / О программе
-   ├─ NSStatusItem (опция, по умолчанию выкл) -> то же меню, если док скрыт
    ├─ Настройки… -> NSWindow(NSHostingController(SettingsRootView: SwiftUI Form))
    ├─ О программе -> orderFrontStandardAboutPanel (версия из Info.plist)
-   └─ активити-полиси: .regular (иконка в доке) / .accessory (только трей)
+   └─ активити-полиси: всегда .regular (приложение всегда в доке)
       │
-   showFact: TipProvider.nextTip() -> облачко у дока
+   showFact: факты активного персонажа -> облачко у иконки (нет фактов -> ничего)
       ▼
    bubble (NSPanel: borderless, прозрачный, поверх всех, не ворует фокус)
-      └─ NSHostingView(SpeechBubbleView)  <- хвостик в сторону дока
-             позиция: bubbleOrigin(anchor, dockOrientation) - низ/слева/справа
+      └─ NSHostingView(SpeechBubbleView)  <- авто-размер, хвостик в сторону дока
+             позиция: bubbleOrigin(mouseLocation, dockOrientation) - низ/слева/справа
                                           │
                                     TipProvider (protocol)
                                     ├─ LocalJSONProvider   (старт)
@@ -46,19 +45,18 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
 ### ключевые технические узлы
 
 **1. Тип приложения.** точка входа - чистый AppKit (`main.swift`:
-`NSApplication` + `AppDelegate`), НЕ SwiftUI `App`. Причина: SwiftUI
-`MenuBarExtra` на практике не реагировал на клики (в accessibility - 0 меню-баров)
-и мешал reopen из дока. Трей - нативный `NSStatusItem` с `NSMenu` (раскрывается
-всегда, виден в AX). Видимость в доке/трее - `setActivationPolicy(.regular /
-.accessory)` + добавление/снятие `NSStatusItem`; `LSUIElement = YES` в Info.plist,
-чтобы на старте не мигала иконка дока. SwiftUI остаётся только для контента окон
-(`SettingsRootView`, баллон) через `NSHostingController`/`NSHostingView`.
+`NSApplication` + `AppDelegate`), НЕ SwiftUI `App`. Приложение всегда в доке
+(`setActivationPolicy(.regular)`); меню-бара нет. SwiftUI остаётся только для
+контента окон (`SettingsRootView`, баллон) через `NSHostingController`/`NSHostingView`.
 
 **2. Персонаж в доке + облачко-`NSPanel`.**
 - персонаж: `NSApp.dockTile.contentView = NSImageView`, `SpriteAnimator` крутит
   бесконечный idle и на каждый кадр зовёт `NSApp.dockTile.display()`
-- левый клик по доку -> `applicationShouldHandleReopen` (когда нет видимых окон);
-  якорь облачка - `NSEvent.mouseLocation` (курсор в этот миг на иконке дока)
+- idle зациклен «туда-сюда»: кадры вперёд, затем назад (`playSequence`), плавнее и
+  без рывка на стыке; через пару циклов - другая idle-анимация
+- левый клик по доку -> `applicationShouldHandleReopen`; якорь облачка -
+  `NSEvent.mouseLocation` (курсор в этот миг на иконке дока), поэтому баллон встаёт
+  у самой иконки, а не по середине дока
 - правый клик -> `applicationDockMenu` (Показать факт / Настройки… / О программе;
   Quit док добавляет сам)
 - облачко - отдельный `NSPanel` `[.borderless, .nonactivatingPanel]`, `.floating`,
@@ -90,21 +88,18 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
 прячется.
 
 **5. Показ факта - только по клику.** периодического таймера и детекта активности
-больше нет (персонаж и так всегда виден в доке). Факт всплывает по левому клику по
-иконке дока или из меню (дока/трея). `ActivityMonitor` и `Scheduler` удалены.
+нет (персонаж всегда виден в доке). Факт всплывает по левому клику по иконке дока
+или из меню дока. `ActivityMonitor` и `Scheduler` удалены.
 
 **6. Показ персонажа - всегда в доке.** пока приложение запущено (`.regular`),
-`SpriteAnimator` крутит idle в `dockTile`. Отдельного окна на рабочем столе и
-ходьбы по экрану нет (убрано в доковом редизайне).
+`SpriteAnimator` крутит idle в `dockTile`. Отдельного окна на рабочем столе,
+ходьбы по экрану и меню-бара нет (убрано в доковом редизайне).
 
 **7. Настройки (`AppSettings`).** обёртка над `UserDefaults`: вкл/выкл, провайдер +
-его поля, звук, категории фактов, активный персонаж, `showInMenuBar` (по умолчанию
-выкл) / `showInDock` (по умолчанию вкл). Управление - в окне настроек
-(`SettingsRootView`: SwiftUI `Form` в `NSWindow`), открывается из меню дока/трея
-(«Настройки…»), из меню приложения / Cmd+, и при старте, если скрыты обе поверхности.
-- **где показывать:** `showInMenuBar` / `showInDock`. Иконка в доке - основная
-  (там анимация); меню-бар - опциональный фолбэк, если док скрыт. Если скрыты обе -
-  окно настроек открывается на старте и при reopen
+его поля, звук, категории фактов Clippy, активный персонаж. Управление - в окне
+настроек (`SettingsRootView`: SwiftUI `Form` в `NSWindow`), открывается из меню
+дока («Настройки…») и из меню приложения / Cmd+,. Тумблеров «в доке / в меню-баре»
+нет: приложение всегда в доке.
 - **версия:** `CFBundleShortVersionString` из Info.plist (правится через `VERSION`
   в `build-dmg.sh`), показывается в панели «О программе»
 
@@ -116,7 +111,11 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
 ```swift
 protocol TipProvider { func nextTip() async throws -> String }
 ```
-- `LocalJSONProvider`: `tips.json` из бандла, случайный выбор. Оффлайн, без ключей
+- `LocalJSONProvider`: встроенный `tips.json` Clippy (по категориям), случайный выбор
+- `AgentTipsProvider`: факты конкретного персонажа из `<папка>/tips.json` (плоский
+  массив); нет файла -> `throws` -> у персонажа своих фактов нет, облачко не показываем.
+  локальный провайдер выбирается по активному персонажу: Clippy -> `LocalJSONProvider`,
+  иначе -> `AgentTipsProvider`
 - `OllamaProvider`: POST `http://localhost:11434/api/generate`, `stream=false`
 - `ClaudeProvider`: Anthropic Messages API (при реализации свериться со скиллом
   claude-api за актуальной моделью и эндпоинтом; ключ - из Keychain, не в коде)
@@ -299,11 +298,11 @@ clippy-mac/
   Rover - импортированы из ClippyJS (`scripts/import-clippyjs.py` в
   `Sources/ClippyMac/BundledAgents/`); `discoverAgents` читает бандл + папку Agents
 
-**факты по персонажам (TODO).** сейчас `tips.json` - это факты **только про Clippy**
-(в его характере). Другим персонажам категорию `persona` (самореференсы Clippy) не
-отдаём, они видят только общие факты. Полноценный набор реплик под каждого персонажа
-(Merlin, Genie, ...) - отдельная задача на потом; хранить как
-`BundledAgents/<Имя>/tips.json` и читать из папки персонажа, если файл есть.
+**факты по персонажам.** у каждого персонажа свои факты. Clippy - встроенный
+`tips.json` (598 реплик в его характере). Другой персонаж читает
+`<папка>/tips.json` (`AgentTipsProvider`); файла нет -> облачко не показываем.
+TODO: написать наборы реплик для встроенных персонажей (Merlin, Genie, Bonzi,
+Links, Rover) и положить `BundledAgents/<Имя>/tips.json`.
 
 прочее отложенное:
 - ~~наполнить `tips.json`~~ сделано: 598 реплик в стиле «Скрепыш с характером»
@@ -321,10 +320,13 @@ clippy-mac/
 динамический размер облачка под длину факта.
 
 **доковый редизайн (последнее):** персонаж - анимированная иконка в доке
-(`dockTile`), факт по левому клику всплывает облачком у иконки с учётом стороны
-дока (низ/лево/право, хвостик к доку), правый клик - меню дока. Убраны: плановый
-таймер/частота/snooze, `ActivityMonitor`, `Scheduler`, плавающее окно персонажа,
-ходьба, масштаб. Меню-бар стал опциональным (по умолчанию выкл).
+(`dockTile`) с idle «туда-сюда»; факт по левому клику всплывает облачком у самой
+иконки (якорь - позиция курсора) с учётом стороны дока (низ/лево/право, хвостик к
+доку); облачко авто-подстраивается под длину факта; правый клик - меню дока. Факты
+по активному персонажу (Clippy - встроенные; другой - свои или ничего). Убраны:
+плановый таймер/частота/snooze, `ActivityMonitor`, `Scheduler`, плавающее окно,
+ходьба, масштаб, **меню-бар и тумблеры «в доке / в меню-баре»** (приложение всегда
+в доке).
 
 ## иконка
 

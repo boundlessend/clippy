@@ -42,10 +42,43 @@ final class SpriteAnimator {
         step(anim.frames, index: 0, stepsLeft: maxSteps, myToken: token, completion: completion)
     }
 
-    // живой idle: случайный жест из Idle*/RestPose, потом следующий
+    // живой idle: анимация «туда-сюда» (кадры вперёд, затем назад) - плавнее, без
+    // рывка на стыке; через пару циклов берём другую idle. branching здесь не нужен
     func loopIdle() {
         let name = idleNames.randomElement() ?? "RestPose"
-        play(name, maxSteps: 50) { [weak self] in self?.loopIdle() }
+        guard let frames = agent.animations[name]?.frames, frames.count > 1 else {
+            if let f = agent.animations[name]?.frames.first { render(f) }   // одиночный кадр
+            token += 1
+            let myToken = token
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                guard let self, myToken == self.token else { return }
+                self.loopIdle()
+            }
+            return
+        }
+        let fwd = Array(frames.indices)                          // 0..n-1
+        let back = Array(fwd.dropFirst().dropLast().reversed())  // n-2..1 (крайние не дублируем)
+        playSequence(frames, order: fwd + back, cycles: 2) { [weak self] in self?.loopIdle() }
+    }
+
+    // проиграть кадры в заданном порядке, повторить cycles раз, затем completion
+    private func playSequence(_ frames: [Frame], order: [Int], cycles: Int,
+                              then: @escaping () -> Void) {
+        token += 1
+        let myToken = token
+        func run(_ pos: Int, _ cyclesLeft: Int) {
+            guard myToken == token else { return }              // перебито новой анимацией
+            if pos >= order.count {
+                if cyclesLeft <= 1 { then(); return }
+                run(0, cyclesLeft - 1); return
+            }
+            let frame = frames[order[pos]]
+            render(frame)
+            playSound(frame)
+            let delay = Double(max(frame.duration, 1)) / 1000.0
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { run(pos + 1, cyclesLeft) }
+        }
+        run(0, cycles)
     }
 
     private func step(_ frames: [Frame], index: Int, stepsLeft: Int?, myToken: Int,

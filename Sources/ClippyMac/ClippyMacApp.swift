@@ -7,7 +7,7 @@ struct ClippyControls: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        Button("Показать факт") { delegate.showFact(at: nil) }
+        Button("Показать факт") { delegate.showFact() }
         Divider()
         Toggle("Включён", isOn: $settings.enabled)
         Toggle("Звук", isOn: Binding(get: { !settings.muted }, set: { settings.muted = !$0 }))
@@ -33,11 +33,6 @@ struct ClippyControls: View {
             Button("Обновить список") { delegate.reloadAgents() }
         }
         Divider()
-        Toggle("Иконка в меню-баре", isOn: $settings.showInMenuBar)
-            .onChange(of: settings.showInMenuBar) { _ in delegate.updateStatusItem() }
-        Toggle("Иконка в доке", isOn: $settings.showInDock)
-            .onChange(of: settings.showInDock) { _ in applyActivationPolicy() }
-        Divider()
         Button("Выход") { NSApplication.shared.terminate(nil) }
     }
 
@@ -56,7 +51,7 @@ struct ClippyControls: View {
         }
     }
 
-    // категории локальных фактов (действуют для источника «Локальные советы»)
+    // категории фактов Clippy (действуют для встроенного Clippy + источника «Локальные советы»)
     @ViewBuilder private var categoryToggles: some View {
         Text("Категории фактов").font(.caption).foregroundStyle(.secondary)
         ForEach(AppSettings.tipCategories) { cat in
@@ -81,35 +76,14 @@ struct SettingsRootView: View {
     }
 }
 
-// иконка в доке = .regular, только трей = .accessory
-@MainActor func applyActivationPolicy() {
-    NSApp.setActivationPolicy(AppSettings.shared.showInDock ? .regular : .accessory)
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @Published private(set) var availableAgents: [AgentRef] = []   // встроенный + из папки
     private var dockView: NSImageView?                // куда рисует аниматор (иконка в доке)
     private var animator: SpriteAnimator?
     private var bubblePanel: NSPanel?                 // облачко с фактом у дока
-    private var localProvider: LocalJSONProvider?     // кеш: читает файл один раз
     private var hideWork: DispatchWorkItem?
-    private var builtAgent: String = ""               // имя персонажа, с которым построен аниматор
-    private var builtCategories: Set<String> = []     // категории, с которыми построен localProvider
     private var settingsWindow: NSWindow?
-    private var statusItem: NSStatusItem?
-
-    // сам скрепыш (с иконки, без фона) для меню-бара; фолбэк - SF-скрепка
-    private static let menuBarImage: NSImage = {
-        if let url = Bundle.module.url(forResource: "menubar", withExtension: "png"),
-           let img = NSImage(contentsOf: url) {
-            let h: CGFloat = 18
-            img.size = NSSize(width: h * img.size.width / img.size.height, height: h)
-            return img
-        }
-        return NSImage(systemSymbolName: "paperclip", accessibilityDescription: "Clippy")
-            ?? NSImage()
-    }()
 
     var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
@@ -126,12 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         reloadAgents()                            // список персонажей (встроенный + из папки)
         NSApp.mainMenu = makeMainMenu()           // меню приложения (Cmd+,, Cmd+Q)
-        applyActivationPolicy()                   // док/трей - по настройкам
-        updateStatusItem()                        // иконка в баре по настройке
+        NSApp.setActivationPolicy(.regular)       // всегда в доке
         setupDock()                               // анимированный персонаж в доке
-        // если и трей, и док скрыты - показываем окно, иначе в настройки не зайти
-        let s = AppSettings.shared
-        if !s.showInMenuBar && !s.showInDock { showSettings() }
     }
 
     // левый клик по иконке в доке: показать факт (или сфокусировать открытые настройки)
@@ -139,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         if let w = settingsWindow, w.isVisible {
             w.makeKeyAndOrderFront(nil)
         } else {
-            showFact(at: NSEvent.mouseLocation)   // курсор сейчас на иконке в доке
+            showFact()
         }
         return true
     }
@@ -168,32 +138,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     // смена персонажа в настройках -> перестроить анимацию в доке
     func applyAgentChange() { rebuildDockAnimator() }
 
-    // иконка-скрепыш в меню-баре (опция; по умолчанию выкл, на случай скрытого дока)
-    func updateStatusItem() {
-        if AppSettings.shared.showInMenuBar {
-            guard statusItem == nil else { return }
-            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-            item.button?.image = Self.menuBarImage
-            item.menu = makeStatusMenu()
-            statusItem = item
-        } else if let item = statusItem {
-            NSStatusBar.system.removeStatusItem(item)
-            statusItem = nil
-        }
-    }
-
-    private func makeStatusMenu() -> NSMenu {
-        let m = NSMenu()
-        m.addItem(withTitle: "Показать факт", action: #selector(miFact), keyEquivalent: "")
-        m.addItem(.separator())
-        m.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
-        m.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
-        m.addItem(.separator())
-        m.addItem(withTitle: "Выход", action: #selector(miQuit), keyEquivalent: "q")
-        m.items.forEach { $0.target = self }
-        return m
-    }
-
     private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
         let appItem = NSMenuItem()
@@ -209,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return main
     }
 
-    @objc private func miFact() { showFact(at: nil) }
+    @objc private func miFact() { showFact() }
     @objc private func miSettings() { showSettings() }
     @objc private func miQuit() { NSApp.terminate(nil) }
     @objc private func miAbout() {
@@ -223,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         ])
     }
 
-    // единое окно настроек: и на первом запуске, и из дока, и из трея
+    // единое окно настроек: из дока и из меню приложения
     func showSettings() {
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsRootView(delegate: self))
@@ -245,6 +189,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // MARK: - персонаж в доке
 
+    // активный персонаж: из списка по имени, иначе встроенный
+    private func activeAgentRef() -> AgentRef {
+        availableAgents.first { $0.name == AppSettings.shared.activeAgent }
+            ?? AgentRef(name: builtInAgentName, directory: nil)
+    }
+
     private func setupDock() {
         let iv = NSImageView(frame: NSRect(x: 0, y: 0, width: 128, height: 128))
         iv.imageScaling = .scaleProportionallyUpOrDown
@@ -257,8 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private func rebuildDockAnimator() {
         guard let dockView else { return }
         do {
-            let ref = availableAgents.first { $0.name == AppSettings.shared.activeAgent }
-                ?? AgentRef(name: builtInAgentName, directory: nil)
+            let ref = activeAgentRef()
             let agent = try loadClippyAgent(from: ref.directory)
             let sheet = try loadSpriteSheet(from: ref.directory)
             let soundsBase = ref.directory?.appendingPathComponent("sounds")
@@ -266,7 +215,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                                    soundsBase: soundsBase,
                                    onRender: { NSApp.dockTile.display() })
             animator = a
-            builtAgent = ref.name
             a.play("Show") { [weak a] in a?.loopIdle() }
         } catch {
             NSLog("clippy: failed to build dock animator: \(error)")
@@ -275,12 +223,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // MARK: - факт в облачке у дока
 
-    // показать факт: anchor - точка клика в доке (nil -> прикинуть по краю дока)
-    func showFact(at anchor: NSPoint?) {
+    // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
+    func showFact() {
         guard AppSettings.shared.enabled else { return }
+        let anchor = NSEvent.mouseLocation        // курсор сейчас у иконки в доке
         Task { @MainActor in
             guard let tip = await self.fetchTip() else {
-                NSLog("clippy: ни один провайдер не дал совет")
+                NSLog("clippy: фактов для персонажа нет - облачко не показываем")
                 return
             }
             self.hideWork?.cancel()
@@ -293,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
-    private func showBubble(_ text: String, anchor: NSPoint?) {
+    private func showBubble(_ text: String, anchor: NSPoint) {
         let orient = dockOrientation()
         let host = NSHostingView(rootView: SpeechBubbleView(text: text, dock: orient))
         let size = host.fittingSize
@@ -303,10 +252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let bp = makeOverlayPanel(contentView: host, size: size)
         bubblePanel = bp
 
-        let screen = NSScreen.main?.frame ?? .zero
         let visible = NSScreen.main?.visibleFrame ?? .zero
-        let a = anchor ?? dockEdgeAnchor(orientation: orient, screen: screen)
-        bp.setFrameOrigin(bubbleOrigin(anchor: a, orientation: orient, bubbleSize: size, screen: visible))
+        bp.setFrameOrigin(bubbleOrigin(anchor: anchor, orientation: orient,
+                                       bubbleSize: size, screen: visible))
         bp.orderFrontRegardless()
     }
 
@@ -319,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     // MARK: - контент
 
-    // фолбэк-цепочка: выбранный провайдер, при ошибке - локальный (он всегда отдаёт факт)
+    // фолбэк-цепочка: выбранный провайдер, при ошибке - локальные факты персонажа
     private func fetchTip() async -> String? {
         var chain = [AppSettings.shared.providerKind]
         if !chain.contains(.local) { chain.append(.local) }
@@ -330,25 +278,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return nil
     }
 
-    // настройки провайдеров берём из UI (Keychain для ключа Claude), с фолбэком на env
+    // локальные факты - по активному персонажу: Clippy -> встроенный tips.json;
+    // другой персонаж -> его собственный tips.json (нет файла -> throws -> облачка не будет)
     private func provider(for kind: ProviderKind) throws -> TipProvider {
         let s = AppSettings.shared
         let env = ProcessInfo.processInfo.environment
         switch kind {
         case .local:
-            // факты категории «persona» - только про Clippy; другим персонажам их не даём
-            // (отдельные факты для каждого персонажа - в бэклоге)
-            var cats = s.enabledCategories
-            if s.activeAgent != builtInAgentName {
-                cats.remove("persona")
-                // пустой набор в LocalJSONProvider = все категории, поэтому подставим общие
-                if cats.isEmpty { cats = AppSettings.allCategoryKeys.subtracting(["persona"]) }
-            }
-            if localProvider == nil || builtCategories != cats {
-                localProvider = try LocalJSONProvider(enabled: cats)
-                builtCategories = cats
-            }
-            return localProvider!
+            let ref = activeAgentRef()
+            if let dir = ref.directory { return try AgentTipsProvider(directory: dir) }
+            return try LocalJSONProvider(enabled: s.enabledCategories)
         case .ollama:
             let urlStr = s.ollamaURL.isEmpty
                 ? (env["CLIPPY_OLLAMA_URL"] ?? "http://localhost:11434/api/generate") : s.ollamaURL

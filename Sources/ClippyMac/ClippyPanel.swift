@@ -33,16 +33,6 @@ func dockOrientation() -> DockOrientation {
     }
 }
 
-// pure: точка привязки облачка, когда нет клика (прикидка по середине края дока)
-func dockEdgeAnchor(orientation: DockOrientation, screen: NSRect) -> NSPoint {
-    let edge: CGFloat = 40
-    switch orientation {
-    case .bottom: return NSPoint(x: screen.midX, y: screen.minY + edge)
-    case .left:   return NSPoint(x: screen.minX + edge, y: screen.midY)
-    case .right:  return NSPoint(x: screen.maxX - edge, y: screen.midY)
-    }
-}
-
 // pure: левый нижний угол облачка так, чтобы оно стояло у иконки со стороны дока
 // и не вылезало за видимую область экрана
 func bubbleOrigin(anchor: NSPoint, orientation: DockOrientation,

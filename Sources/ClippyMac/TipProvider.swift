@@ -26,3 +26,21 @@ struct LocalJSONProvider: TipProvider {
         tips.randomElement()!            // непусто по инварианту init
     }
 }
+
+// факты конкретного персонажа из <папка>/tips.json (плоский массив строк).
+// нет файла или он пуст -> throws: у персонажа своих фактов нет, облачко не показываем
+struct AgentTipsProvider: TipProvider {
+    private let tips: [String]
+
+    init(directory: URL) throws {
+        let url = directory.appendingPathComponent("tips.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw AssetError.missing("tips.json персонажа")
+        }
+        let list = try JSONDecoder().decode([String].self, from: Data(contentsOf: url))
+        guard !list.isEmpty else { throw AssetError.missing("tips.json персонажа (пусто)") }
+        self.tips = list
+    }
+
+    func nextTip() async throws -> String { tips.randomElement()! }
+}
