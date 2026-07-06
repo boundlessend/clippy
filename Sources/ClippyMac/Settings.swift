@@ -29,20 +29,10 @@ final class AppSettings: ObservableObject {
     @Published var scale: Double { didSet { d.set(scale, forKey: K.scale) } }
     @Published var muted: Bool { didSet { d.set(muted, forKey: K.muted) } }
 
-    // где показывать приложение. защита: хотя бы одна поверхность включена,
-    // иначе настройки станут недостижимы (нет ни трея, ни дока/меню окна)
-    @Published var showInMenuBar: Bool {
-        didSet {
-            d.set(showInMenuBar, forKey: K.showInMenuBar)
-            if !showInMenuBar && !showInDock { showInDock = true }
-        }
-    }
-    @Published var showInDock: Bool {
-        didSet {
-            d.set(showInDock, forKey: K.showInDock)
-            if !showInDock && !showInMenuBar { showInMenuBar = true }
-        }
-    }
+    // где показывать приложение (можно скрыть и там, и там; если скрыто всё -
+    // окно настроек открывается при запуске уже запущенного приложения)
+    @Published var showInMenuBar: Bool { didSet { d.set(showInMenuBar, forKey: K.showInMenuBar) } }
+    @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: K.showInDock) } }
 
     // пауза до момента (epoch-секунды, 0 = нет); позиция скрепыша
     var snoozeUntil: Double { didSet { d.set(snoozeUntil, forKey: K.snooze) } }

@@ -7,19 +7,24 @@ struct ClippyMacApp: App {
 
     var body: some Scene {
         MenuBarExtra(isInserted: $settings.showInMenuBar) {
-            Button("Настройки…") { delegate.showSettings() }
-            Divider()
-            ClippyControls(delegate: delegate)
+            SettingsRootView(delegate: delegate)
         } label: {
-            Image(nsImage: Self.menuBarIcon).renderingMode(.template)
+            Image(nsImage: Self.menuBarIcon).renderingMode(.original)
+        }
+        .menuBarExtraStyle(.window)     // выпадающая панель, надёжна и с иконкой в доке
+        .commands {
+            // в режиме дока (без трея) - доступ к настройкам через меню/Cmd+,
+            CommandGroup(replacing: .appSettings) {
+                Button("Настройки Clippy…") { delegate.showSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 
-    // минималистичный шаблон-глиф скрепыша для меню-бара; фолбэк - SF-скрепка
+    // сам скрепыш (с иконки, без фона) в меню-баре; фолбэк - SF-скрепка
     private static let menuBarIcon: NSImage = {
         if let url = Bundle.module.url(forResource: "menubar", withExtension: "png"),
            let img = NSImage(contentsOf: url) {
-            img.isTemplate = true
             let h: CGFloat = 18
             img.size = NSSize(width: h * img.size.width / img.size.height, height: h)
             return img
@@ -63,13 +68,14 @@ struct ClippyControls: View {
     }
 }
 
-// содержимое окна настроек (то же, что в трее, но в форме)
+// компактная панель настроек: и как выпадашка из трея, и как фолбэк-окно
 struct SettingsRootView: View {
     let delegate: AppDelegate
 
     var body: some View {
         Form { ClippyControls(delegate: delegate) }
-            .formStyle(.grouped)
+            .frame(width: 280)
+            .frame(maxHeight: 460)
     }
 }
 
@@ -101,12 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyActivationPolicy()                   // док/трей - по настройкам
         startScheduler()
-        // на первом запуске сразу показываем настройки, чтобы было где настроить
-        let d = UserDefaults.standard
-        if !d.bool(forKey: "didOnboard") {
-            d.set(true, forKey: "didOnboard")
-            showSettings()
-        }
+        // если и трей, и док скрыты - показываем окно, иначе в настройки не зайти
+        let s = AppSettings.shared
+        if !s.showInMenuBar && !s.showInDock { showSettings() }
     }
 
     // клик по иконке в доке (нет открытых окон) - открыть настройки
@@ -121,11 +124,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let hosting = NSHostingController(rootView: SettingsRootView(delegate: self))
             hosting.sizingOptions = []                 // не навязывать окну размер контента
             let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 360, height: 460),
+                contentRect: NSRect(x: 0, y: 0, width: 300, height: 430),
                 styleMask: [.titled, .closable, .resizable],
                 backing: .buffered, defer: false)
             w.contentViewController = hosting
-            w.setContentSize(NSSize(width: 360, height: 460))
+            w.setContentSize(NSSize(width: 300, height: 430))
             w.title = "Настройки Clippy"
             w.isReleasedWhenClosed = false
             w.center()
