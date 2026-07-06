@@ -1,40 +1,7 @@
 import SwiftUI
 import AppKit
 
-struct ClippyMacApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @ObservedObject private var settings = AppSettings.shared
-
-    var body: some Scene {
-        MenuBarExtra(isInserted: $settings.showInMenuBar) {
-            SettingsRootView(delegate: delegate)
-        } label: {
-            Image(nsImage: Self.menuBarIcon).renderingMode(.original)
-        }
-        .menuBarExtraStyle(.window)     // выпадающая панель, надёжна и с иконкой в доке
-        .commands {
-            // в режиме дока (без трея) - доступ к настройкам через меню/Cmd+,
-            CommandGroup(replacing: .appSettings) {
-                Button("Настройки Clippy…") { delegate.showSettings() }
-                    .keyboardShortcut(",", modifiers: .command)
-            }
-        }
-    }
-
-    // сам скрепыш (с иконки, без фона) в меню-баре; фолбэк - SF-скрепка
-    private static let menuBarIcon: NSImage = {
-        if let url = Bundle.module.url(forResource: "menubar", withExtension: "png"),
-           let img = NSImage(contentsOf: url) {
-            let h: CGFloat = 18
-            img.size = NSSize(width: h * img.size.width / img.size.height, height: h)
-            return img
-        }
-        return NSImage(systemSymbolName: "paperclip", accessibilityDescription: "Clippy")
-            ?? NSImage()
-    }()
-}
-
-// общий набор контролов: и как содержимое трея, и в окне настроек
+// общий набор контролов для окна настроек
 struct ClippyControls: View {
     let delegate: AppDelegate
     @ObservedObject private var settings = AppSettings.shared
@@ -61,6 +28,7 @@ struct ClippyControls: View {
         ))
         Divider()
         Toggle("Показывать в меню-баре", isOn: $settings.showInMenuBar)
+            .onChange(of: settings.showInMenuBar) { _ in delegate.updateStatusItem() }
         Toggle("Показывать в доке", isOn: $settings.showInDock)
             .onChange(of: settings.showInDock) { _ in applyActivationPolicy() }
         Divider()
@@ -95,6 +63,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var scheduler: Scheduler?
     private var builtScale: Double = 0                // масштаб, с которым построена панель
     private var settingsWindow: NSWindow?
+    private var statusItem: NSStatusItem?
+
+    // сам скрепыш (с иконки, без фона) для меню-бара; фолбэк - SF-скрепка
+    private static let menuBarImage: NSImage = {
+        if let url = Bundle.module.url(forResource: "menubar", withExtension: "png"),
+           let img = NSImage(contentsOf: url) {
+            let h: CGFloat = 18
+            img.size = NSSize(width: h * img.size.width / img.size.height, height: h)
+            return img
+        }
+        return NSImage(systemSymbolName: "paperclip", accessibilityDescription: "Clippy")
+            ?? NSImage()
+    }()
+
+    var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
 
     // ponytail: фиксированная длительность показа баллона
     private let bubbleSeconds: Double = 8
@@ -105,7 +90,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = makeMainMenu()           // меню приложения (док-режим, Cmd+,, Cmd+Q)
         applyActivationPolicy()                   // док/трей - по настройкам
+        updateStatusItem()                        // иконка в баре по настройке
         startScheduler()
         // если и трей, и док скрыты - показываем окно, иначе в настройки не зайти
         let s = AppSettings.shared
@@ -116,6 +103,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         if !hasVisibleWindows { showSettings() }
         return true
+    }
+
+    // иконка-скрепыш в меню-баре с выпадающим меню (создаём/убираем по настройке)
+    func updateStatusItem() {
+        if AppSettings.shared.showInMenuBar {
+            guard statusItem == nil else { return }
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.button?.image = Self.menuBarImage
+            item.menu = makeStatusMenu()
+            statusItem = item
+        } else if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+    }
+
+    private func makeStatusMenu() -> NSMenu {
+        let m = NSMenu()
+        m.addItem(withTitle: "Показать сейчас", action: #selector(miShow), keyEquivalent: "")
+        m.addItem(withTitle: "Проиграть жест", action: #selector(miGesture), keyEquivalent: "")
+        m.addItem(.separator())
+        m.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
+        m.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
+        m.addItem(.separator())
+        m.addItem(withTitle: "Выход", action: #selector(miQuit), keyEquivalent: "q")
+        m.items.forEach { $0.target = self }
+        return m
+    }
+
+    private func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+        let appItem = NSMenuItem()
+        main.addItem(appItem)
+        let appMenu = NSMenu()
+        appItem.submenu = appMenu
+        let about = appMenu.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let settings = appMenu.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
+        appMenu.addItem(.separator())
+        let quit = appMenu.addItem(withTitle: "Выход", action: #selector(miQuit), keyEquivalent: "q")
+        [about, settings, quit].forEach { $0.target = self }
+        return main
+    }
+
+    @objc private func miShow() { showClippy() }
+    @objc private func miGesture() { playGesture() }
+    @objc private func miSettings() { showSettings() }
+    @objc private func miQuit() { NSApp.terminate(nil) }
+    @objc private func miAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Clippy",
+            .applicationVersion: appVersion,
+            .credits: NSAttributedString(
+                string: "возрождение легендарного скрепыша на macOS",
+                attributes: [.font: NSFont.systemFont(ofSize: 11)]),
+        ])
     }
 
     // единое окно настроек: и на первом запуске, и из дока, и из трея
