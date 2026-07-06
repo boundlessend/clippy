@@ -7,20 +7,29 @@ let tipPrompt = "Дай один короткий интересный факт 
 
 struct HTTPError: Error { let status: Int; let body: String }
 
-// проверка HTTP-ответа с контекстом для отладки (статус + тело)
+// таймаут внешних запросов
+let networkTimeout: TimeInterval = 15
+
+// проверка HTTP-ответа; тело усечено (не тащим весь ответ в лог)
 func ensureOK(_ resp: URLResponse, _ data: Data) throws {
-    guard let http = resp as? HTTPURLResponse else { return }
+    guard let http = resp as? HTTPURLResponse else {
+        throw HTTPError(status: -1, body: "не HTTP-ответ")
+    }
     guard (200..<300).contains(http.statusCode) else {
         throw HTTPError(status: http.statusCode,
-                        body: String(data: data, encoding: .utf8) ?? "<binary>")
+                        body: String(data: data.prefix(300), encoding: .utf8) ?? "<binary>")
     }
 }
 
-// retries с warning-логами, затем raise последней ошибки (правило проекта)
+// retries с warning-логами, затем raise последней ошибки (правило проекта).
+// клиентские 4xx (напр. 401 при неверном ключе) не ретраим - бесполезно
 func withRetries<T>(_ attempts: Int = 3, _ op: () async throws -> T) async throws -> T {
     var last: Error?
     for i in 1...attempts {
         do { return try await op() }
+        catch let e as HTTPError where (400..<500).contains(e.status) {
+            throw e
+        }
         catch {
             last = error
             NSLog("clippy: attempt \(i)/\(attempts) failed: \(error)")
@@ -38,6 +47,7 @@ struct OllamaProvider: TipProvider {
     func nextTip() async throws -> String {
         try await withRetries {
             var req = URLRequest(url: endpoint)
+            req.timeoutInterval = networkTimeout
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: Any] = ["model": model, "prompt": tipPrompt, "stream": false]
@@ -66,6 +76,7 @@ struct ClaudeProvider: TipProvider {
     func nextTip() async throws -> String {
         try await withRetries {
             var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+            req.timeoutInterval = networkTimeout
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -92,7 +103,9 @@ struct FactsAPIProvider: TipProvider {
     func nextTip() async throws -> String {
         try await withRetries {
             let url = URL(string: "https://uselessfacts.jsph.pl/api/v2/facts/random?language=en")!
-            let (data, resp) = try await URLSession.shared.data(from: url)
+            var req = URLRequest(url: url)
+            req.timeoutInterval = networkTimeout
+            let (data, resp) = try await URLSession.shared.data(for: req)
             try ensureOK(resp, data)
             return try JSONDecoder().decode(UselessFact.self, from: data).text
         }
@@ -107,7 +120,9 @@ struct RSSProvider: TipProvider {
 
     func nextTip() async throws -> String {
         try await withRetries {
-            let (data, resp) = try await URLSession.shared.data(from: feedURL)
+            var req = URLRequest(url: feedURL)
+            req.timeoutInterval = networkTimeout
+            let (data, resp) = try await URLSession.shared.data(for: req)
             try ensureOK(resp, data)
             guard let title = RSSFirstTitle().parse(data) else {
                 throw AssetError.missing("RSS <item><title>")
