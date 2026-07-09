@@ -37,6 +37,7 @@ struct ClippyControls: View {
             Button("Папка персонажей") { delegate.showAgentsFolder() }
             Button("Обновить список") { delegate.reloadAgents() }
         }
+        Toggle("Случайный персонаж при запуске", isOn: $settings.randomAgentOnLaunch)
         Divider()
         Button("Выход") { NSApplication.shared.terminate(nil) }
     }
@@ -114,6 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         reloadAgents()                            // список персонажей (встроенный + из папки)
+        // случайный персонаж при старте, если включено в настройках (до setupDock)
+        if AppSettings.shared.randomAgentOnLaunch, let name = randomAgentName() {
+            AppSettings.shared.activeAgent = name
+        }
         NSApp.mainMenu = makeMainMenu()           // меню приложения (Cmd+,, Cmd+Q)
         NSApp.setActivationPolicy(.regular)       // всегда в доке
         setupDock()                               // анимированный персонаж в доке
@@ -178,9 +183,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let m = NSMenu()
         m.addItem(withTitle: "Показать факт", action: #selector(miFact), keyEquivalent: "")
+        m.addItem(withTitle: "Показать жест", action: #selector(miGesture), keyEquivalent: "")
+        m.addItem(.separator())
+
+        // подменю выбора персонажа (галочка на активном) + быстрый рандом
+        let agentItem = NSMenuItem(title: "Персонаж", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        let active = AppSettings.shared.activeAgent
+        for ref in availableAgents {
+            let it = NSMenuItem(title: ref.name, action: #selector(miPickAgent(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = ref.name
+            it.state = ref.name == active ? .on : .off
+            sub.addItem(it)
+        }
+        agentItem.submenu = sub
+        m.addItem(agentItem)
+        m.addItem(withTitle: "Случайный персонаж", action: #selector(miRandomAgent), keyEquivalent: "")
+        m.addItem(.separator())
+
         m.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: "")
         m.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
-        m.items.forEach { $0.target = self }
+        m.items.forEach { $0.target = self }      // топ-уровень; пункты подменю уже с target
         return m
     }
 
@@ -215,8 +239,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     }
 
     @objc private func miFact() { showFact() }
+    @objc private func miGesture() { playRandomGesture() }
     @objc private func miSettings() { showSettings() }
     @objc private func miQuit() { NSApp.terminate(nil) }
+
+    // случайный персонаж из меню дока (по возможности не текущий)
+    @objc private func miRandomAgent() {
+        guard let name = randomAgentName() else { return }
+        AppSettings.shared.activeAgent = name
+        applyAgentChange()
+    }
+
+    // выбор конкретного персонажа из подменю дока
+    @objc private func miPickAgent(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String,
+              name != AppSettings.shared.activeAgent else { return }
+        AppSettings.shared.activeAgent = name
+        applyAgentChange()
+    }
     @objc private func miAbout() {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [
@@ -262,6 +302,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             ?? AgentRef(name: builtInAgentName, directory: nil)
     }
 
+    // имя случайного персонажа, по возможности не текущего; nil - список пуст
+    private func randomAgentName() -> String? {
+        let others = availableAgents.map(\.name).filter { $0 != AppSettings.shared.activeAgent }
+        return (others.isEmpty ? availableAgents.map(\.name) : others).randomElement()
+    }
+
     private func setupDock() {
         let iv = NSImageView(frame: NSRect(x: 0, y: 0, width: 128, height: 128))
         iv.imageScaling = .scaleProportionallyUpOrDown
@@ -291,6 +337,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // MARK: - факт в облачке у дока
 
+    // проиграть случайный жест в доке, затем вернуться в idle (через гейт экрана/энергосбережения).
+    // maxSteps ограничивает зацикленные жесты, чтобы не зависли
+    private func playRandomGesture() {
+        animator?.play(Self.gestures.randomElement() ?? "Wave", maxSteps: 60) { [weak self] in
+            self?.refreshIdle()
+        }
+    }
+
     // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
     func showFact() {
         guard AppSettings.shared.enabled else { return }
@@ -303,10 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             }
             self.showBubble(tip, anchor: anchor)
             self.scheduleHide(after: self.bubbleSeconds)   // сам отменяет прежний таймер
-            // короткая реакция персонажа в доке (maxSteps - чтобы зацикленные жесты не зависли)
-            self.animator?.play(Self.gestures.randomElement() ?? "Wave", maxSteps: 60) {
-                [weak self] in self?.refreshIdle()
-            }
+            self.playRandomGesture()                        // короткая реакция персонажа в доке
         }
     }
 
