@@ -19,7 +19,7 @@ struct Animation: Decodable {
 struct Frame: Decodable {
     let duration: Int                    // мс
     let images: [[Int]]?                 // слои [[x,y]]; nil = пустой кадр
-    let exitBranch: Int?
+    let exitBranch: Int?                 // только парсинг/валидация; в рантайме idle идёт линейно
     let branching: Branching?
     let sound: String?                   // ключ звука в sounds (1..15)
 }

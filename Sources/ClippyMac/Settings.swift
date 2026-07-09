@@ -1,7 +1,7 @@
 import Foundation
 
 // настройки в UserDefaults. общий экземпляр для окна настроек и делегата.
-// ponytail: nonisolated(unsafe) shared - осознанно; доступ только с main-потока
+// nonisolated(unsafe) shared: обращаемся только с main-потока
 enum ProviderKind: String, CaseIterable, Identifiable {
     case local, ollama, claude, facts, rss
     var id: String { rawValue }
@@ -47,8 +47,10 @@ final class AppSettings: ObservableObject {
     @Published var pauseOnLowPower: Bool { didSet { d.set(pauseOnLowPower, forKey: K.pauseOnLowPower) } }
     // случайный персонаж при каждом запуске (по умолчанию выключено; не перетирает выбор молча)
     @Published var randomAgentOnLaunch: Bool { didSet { d.set(randomAgentOnLaunch, forKey: K.randomAgentOnLaunch) } }
-    // кормление файлом отправляет его в Корзину (по умолчанию включено; сразу, без подтверждения)
+    // кормление файлом отправляет его в Корзину (по умолчанию нет; спрашиваем при первом кормлении)
     @Published var trashOnFeed: Bool { didSet { d.set(trashOnFeed, forKey: K.trashOnFeed) } }
+    // спросили ли уже про режим корзины при первом кормлении файлом
+    @Published var feedTrashAsked: Bool { didSet { d.set(feedTrashAsked, forKey: K.feedTrashAsked) } }
 
     // настройки провайдеров (не секреты - в UserDefaults; ключ Claude - в Keychain)
     @Published var ollamaURL: String { didSet { d.set(ollamaURL, forKey: K.ollamaURL) } }
@@ -56,7 +58,7 @@ final class AppSettings: ObservableObject {
     @Published var rssURL: String { didSet { d.set(rssURL, forKey: K.rssURL) } }
     @Published var claudeKey: String {
         didSet {
-            // ключ пишем в Keychain с дебаунсом, а не на каждый символ ввода (аудит #13)
+            // ключ пишем в Keychain с дебаунсом, а не на каждый символ ввода
             claudeKeyWrite?.cancel()
             let key = claudeKey
             let work = DispatchWorkItem { Keychain.set(key, account: K.claudeKey) }
@@ -82,6 +84,7 @@ final class AppSettings: ObservableObject {
         static let pauseOnLowPower = "pauseOnLowPower"
         static let randomAgentOnLaunch = "randomAgentOnLaunch"
         static let trashOnFeed = "trashOnFeed"
+        static let feedTrashAsked = "feedTrashAsked"
         static let ollamaURL = "ollamaURL"
         static let ollamaModel = "ollamaModel"
         static let rssURL = "rssURL"
@@ -98,14 +101,14 @@ final class AppSettings: ObservableObject {
             K.ollamaURL: Self.defaultOllamaURL,
             K.ollamaModel: Self.defaultOllamaModel,
             K.rssURL: "",
-            K.trashOnFeed: true,
         ])
         enabled = d.bool(forKey: K.enabled)
         providerKind = ProviderKind(rawValue: d.string(forKey: K.provider) ?? "") ?? .local
         muted = d.bool(forKey: K.muted)
         pauseOnLowPower = d.bool(forKey: K.pauseOnLowPower)   // по умолчанию false (ключ не задан)
         randomAgentOnLaunch = d.bool(forKey: K.randomAgentOnLaunch)   // по умолчанию false
-        trashOnFeed = d.bool(forKey: K.trashOnFeed)                   // по умолчанию true (зарегистрирован)
+        trashOnFeed = d.bool(forKey: K.trashOnFeed)                   // по умолчанию false
+        feedTrashAsked = d.bool(forKey: K.feedTrashAsked)            // по умолчанию false
         ollamaURL = d.string(forKey: K.ollamaURL) ?? Self.defaultOllamaURL
         ollamaModel = d.string(forKey: K.ollamaModel) ?? Self.defaultOllamaModel
         rssURL = d.string(forKey: K.rssURL) ?? ""

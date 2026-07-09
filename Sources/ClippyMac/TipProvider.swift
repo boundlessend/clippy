@@ -15,10 +15,9 @@ struct LocalJSONProvider: TipProvider {
             throw AssetError.missing("tips.json")
         }
         let byCategory = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: url))
-        let chosen = enabled.isEmpty ? Set(byCategory.keys) : enabled
-        var list = byCategory.filter { chosen.contains($0.key) }.flatMap(\.value)
-        if list.isEmpty { list = byCategory.values.flatMap { $0 } }   // не оставлять пусто
-        guard !list.isEmpty else { throw AssetError.missing("tips.json (empty)") }
+        // сняты все категории -> набор пуст -> throws -> облачко не показываем (не «все»)
+        let list = byCategory.filter { enabled.contains($0.key) }.flatMap(\.value)
+        guard !list.isEmpty else { throw AssetError.missing("нет включённых категорий фактов") }
         self.tips = list
     }
 

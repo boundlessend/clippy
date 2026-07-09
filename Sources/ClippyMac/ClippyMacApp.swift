@@ -1,6 +1,17 @@
 import SwiftUI
 import AppKit
 
+// pure: случайный элемент, по возможности не равный current; nil при пустом списке
+func pickRandomOther(from names: [String], current: String) -> String? {
+    let others = names.filter { $0 != current }
+    return (others.isEmpty ? names : others).randomElement()
+}
+
+// pure: порядок опроса провайдеров - выбранный, затем локальный фолбэк (без дублей)
+func providerChain(selected: ProviderKind) -> [ProviderKind] {
+    selected == .local ? [.local] : [selected, .local]
+}
+
 // набор контролов для окна настроек
 struct ClippyControls: View {
     @ObservedObject var delegate: AppDelegate
@@ -14,6 +25,7 @@ struct ClippyControls: View {
         Toggle("Пауза в режиме энергосбережения", isOn: $settings.pauseOnLowPower)
             .onChange(of: settings.pauseOnLowPower) { _ in delegate.refreshIdle() }
         Toggle("Кормление файлом отправляет его в Корзину", isOn: $settings.trashOnFeed)
+            .onChange(of: settings.trashOnFeed) { _ in settings.feedTrashAsked = true }
         Toggle("Запускать при входе", isOn: Binding(
             get: { isLoginItemEnabled() },
             set: { setLoginItem($0) }
@@ -53,7 +65,7 @@ struct ClippyControls: View {
             SecureField("Ключ Claude API", text: $settings.claudeKey)
         case .rss:
             TextField("Адрес RSS-ленты", text: $settings.rssURL)
-            // ATS блокирует http; фид по http не загрузится (аудит #28)
+            // ATS блокирует http; фид по http не загрузится
             if settings.rssURL.hasPrefix("http://") {
                 Text("http не поддерживается (ATS): нужен адрес на https")
                     .font(.caption)
@@ -106,8 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 
-    // ponytail: фиксированная длительность показа баллона
+    // фиксированная длительность показа баллона
     private let bubbleSeconds: Double = 8
+    private var gestureInFlight = false               // играет одноразовый жест: idle его не прервёт
+    private static let gestureMaxSteps = 60           // потолок кадров жеста (зацикленные не зависнут)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         reloadAgents()                            // список персонажей (встроенный + из папки)
@@ -122,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        AppSettings.shared.flushPendingWrites()   // не потерять последний ввод ключа (аудит #13)
+        AppSettings.shared.flushPendingWrites()   // не потерять последний ввод ключа
     }
 
     // не крутить idle, когда иконка не видна (экран заблокирован или дисплей спит) -
@@ -160,8 +174,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     func refreshIdle() {
         let lowPowerPause = AppSettings.shared.pauseOnLowPower
             && ProcessInfo.processInfo.isLowPowerModeEnabled
-        if screenOff || lowPowerPause { animator?.stop() }
-        else { animator?.loopIdle() }
+        if screenOff || lowPowerPause {
+            animator?.stop()
+            gestureInFlight = false          // пауза отменяет и текущий жест
+        } else if !gestureInFlight {
+            animator?.loopIdle()             // играющий жест не рвём: его completion сам вернёт idle
+        }
     }
 
     // левый клик по иконке в доке: показать факт, но если открыто «настоящее» окно
@@ -175,25 +193,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         return true
     }
 
-    // файлы перетащили на иконку в доке: персонаж их «съедает» (пункты 4/8).
-    // в режиме корзины отправляем в Корзину (обратимо), иначе файл не трогаем
+    // файлы бросили на иконку в доке: персонаж их «съедает». выключенный Clippy не трогает
     func application(_ application: NSApplication, open urls: [URL]) {
         feed(urls)
     }
 
     private func feed(_ urls: [URL]) {
-        guard !urls.isEmpty else { return }
+        guard AppSettings.shared.enabled, !urls.isEmpty else { return }
+        if !AppSettings.shared.feedTrashAsked {               // при первом кормлении спрашиваем один раз
+            AppSettings.shared.trashOnFeed = askFeedToTrash()
+            AppSettings.shared.feedTrashAsked = true
+        }
         playRandomGesture()                                   // реакция персонажа в доке
-        let toTrash = AppSettings.shared.trashOnFeed
-        if toTrash {
-            NSWorkspace.shared.recycle(urls) { _, error in
-                if let error { NSLog("clippy: не удалось отправить в корзину: \(error)") }
+        let anchor = currentDockAnchor()
+        let label = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) файлов"
+        guard AppSettings.shared.trashOnFeed else {
+            presentBubble("Ням! \(label)", anchor: anchor)    // файлы не трогаем
+            return
+        }
+        // текст показываем по завершении recycle: при ошибке не врём «в Корзину»
+        NSWorkspace.shared.recycle(urls) { [weak self] _, error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error {
+                    NSLog("clippy: не удалось отправить в корзину: \(error)")
+                    self.presentBubble("Не смог отправить \(label) в Корзину", anchor: anchor)
+                } else {
+                    self.presentBubble("Ням! \(label) - в Корзину", anchor: anchor)
+                }
             }
         }
-        let label = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) файлов"
-        let anchor = dockAnchor(orientation: dockOrientation()) ?? NSEvent.mouseLocation
-        showBubble(toTrash ? "Ням! \(label) - в Корзину" : "Ням! \(label)", anchor: anchor)
-        scheduleHide(after: bubbleSeconds)
+    }
+
+    // диалог первого кормления: спросить, отправлять ли кормлёные файлы в Корзину
+    private func askFeedToTrash() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Кормление файлами"
+        alert.informativeText = "Когда вы бросаете файл на иконку Clippy, он его «съедает». "
+            + "Отправлять такие файлы в Корзину? Это всегда можно изменить в настройках."
+        alert.addButton(withTitle: "Не трогать файлы")       // первая = по умолчанию (безопасно)
+        alert.addButton(withTitle: "Отправлять в Корзину")
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
 
@@ -202,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         let m = NSMenu()
         m.addItem(withTitle: "Показать факт", action: #selector(miFact), keyEquivalent: "")
         m.addItem(withTitle: "Показать жест", action: #selector(miGesture), keyEquivalent: "")
-        // подменю конкретных жестов активного персонажа (пункт 6)
+        // подменю конкретных жестов активного персонажа
         if let gestures = animator?.gestureNames, !gestures.isEmpty {
             let gItem = NSMenuItem(title: "Жесты", action: nil, keyEquivalent: "")
             let gSub = NSMenu()
@@ -260,12 +300,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         main.addItem(appItem)
         let appMenu = NSMenu()
         appItem.submenu = appMenu
-        let about = appMenu.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
         appMenu.addItem(.separator())
-        let settings = appMenu.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
+        appMenu.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        let quit = appMenu.addItem(withTitle: "Выход", action: #selector(miQuit), keyEquivalent: "q")
-        [about, settings, quit].forEach { $0.target = self }
+        appMenu.addItem(withTitle: "Выход", action: #selector(miQuit), keyEquivalent: "q")
+        appMenu.items.forEach { $0.target = self }
         return main
     }
 
@@ -289,10 +329,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         applyAgentChange()
     }
 
-    // проиграть конкретный жест из подменю «Жесты» (пункт 6)
+    // проиграть конкретный жест из подменю «Жесты»
     @objc private func miPlayGesture(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
-        animator?.play(name, maxSteps: 60) { [weak self] in self?.refreshIdle() }
+        playGesture(name)
     }
     @objc private func miAbout() {
         NSApp.activate(ignoringOtherApps: true)
@@ -318,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
             w.title = "Настройки Clippy"
             w.isReleasedWhenClosed = false
-            w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла (аудит #30)
+            w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла
             w.center()
             settingsWindow = w
         }
@@ -341,8 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // имя случайного персонажа, по возможности не текущего; nil - список пуст
     private func randomAgentName() -> String? {
-        let others = availableAgents.map(\.name).filter { $0 != AppSettings.shared.activeAgent }
-        return (others.isEmpty ? availableAgents.map(\.name) : others).randomElement()
+        pickRandomOther(from: availableAgents.map(\.name), current: AppSettings.shared.activeAgent)
     }
 
     private func setupDock() {
@@ -366,7 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
                                    onRender: { NSApp.dockTile.display() })
             animator?.stop()                       // погасить прежний, чтобы не дрались за иконку
             animator = a
-            a.play("Show") { [weak self] in self?.refreshIdle() }   // idle через гейт (экран/энергосбережение)
+            playGesture("Show")                    // приветственный жест, затем idle через гейт
         } catch {
             NSLog("clippy: failed to build dock animator: \(error)")
         }
@@ -374,26 +413,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // MARK: - факт в облачке у дока
 
-    // проиграть случайный жест активного персонажа, затем вернуться в idle (через гейт
-    // экрана/энергосбережения). maxSteps ограничивает зацикленные жесты, чтобы не зависли
+    // проиграть случайный жест активного персонажа
     private func playRandomGesture() {
         guard let animator else { return }
-        let name = animator.gestureNames.randomElement() ?? "Wave"
-        animator.play(name, maxSteps: 60) { [weak self] in self?.refreshIdle() }
+        playGesture(animator.gestureNames.randomElement() ?? "Wave")
+    }
+
+    // проиграть один жест: пока он идёт, gestureInFlight не даёт refreshIdle его прервать;
+    // по завершении снимаем флаг и через гейт возвращаемся в idle
+    private func playGesture(_ name: String) {
+        guard let animator else { return }
+        gestureInFlight = true
+        animator.play(name, maxSteps: Self.gestureMaxSteps) { [weak self] in
+            guard let self else { return }
+            self.gestureInFlight = false
+            self.refreshIdle()
+        }
+    }
+
+    // якорь облачка: точный rect иконки дока через AX, иначе позиция курсора
+    private func currentDockAnchor() -> NSPoint {
+        dockAnchor(orientation: dockOrientation()) ?? NSEvent.mouseLocation
+    }
+
+    // показать облачко у иконки и завести таймер автоскрытия
+    private func presentBubble(_ text: String, anchor: NSPoint) {
+        showBubble(text, anchor: anchor)
+        scheduleHide(after: bubbleSeconds)
     }
 
     // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
     func showFact() {
         guard AppSettings.shared.enabled else { return }
-        // точная позиция иконки дока через Accessibility; нет доступа - фолбэк на курсор (аудит #17)
-        let anchor = dockAnchor(orientation: dockOrientation()) ?? NSEvent.mouseLocation
+        // якорь фиксируем в момент клика (курсор потом уедет), показываем после загрузки факта
+        let anchor = currentDockAnchor()
         Task { @MainActor in
             guard let tip = await self.fetchTip() else {
                 NSLog("clippy: фактов для персонажа нет - облачко не показываем")
                 return
             }
-            self.showBubble(tip, anchor: anchor)
-            self.scheduleHide(after: self.bubbleSeconds)   // сам отменяет прежний таймер
+            self.presentBubble(tip, anchor: anchor)
             self.playRandomGesture()                        // короткая реакция персонажа в доке
         }
     }
@@ -427,9 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // фолбэк-цепочка: выбранный провайдер, при ошибке - локальные факты персонажа
     private func fetchTip() async -> String? {
-        var chain = [AppSettings.shared.providerKind]
-        if !chain.contains(.local) { chain.append(.local) }
-        for kind in chain {
+        for kind in providerChain(selected: AppSettings.shared.providerKind) {
             do { return try await provider(for: kind).nextTip() }
             catch { NSLog("clippy: провайдер \(kind.rawValue) не сработал: \(error)") }
         }

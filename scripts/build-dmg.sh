@@ -40,11 +40,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
-      <key>CFBundleTypeName</key><string>Любой файл</string>
+      <key>CFBundleTypeName</key><string>Файл</string>
       <key>CFBundleTypeRole</key><string>Viewer</string>
       <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key>
-      <array><string>public.item</string></array>
+      <array><string>public.data</string></array>
     </dict>
   </array>
 </dict>
@@ -52,7 +52,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> ad-hoc signing"
-codesign --force --deep --sign - "$APP" || echo "codesign skipped"
+codesign --force --deep --sign - "$APP"
 
 echo "==> creating dmg"
 hdiutil create -volname "ClippyMac" -srcfolder "$APP" -ov -format UDZO "$DMG" >/dev/null

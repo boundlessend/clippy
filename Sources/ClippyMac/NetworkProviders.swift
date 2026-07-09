@@ -5,20 +5,19 @@ import Foundation
 let tipPrompt = "Дай один короткий интересный факт или полезный совет на русском языке. "
     + "Одно-два предложения, без вступления и без кавычек."
 
-struct HTTPError: Error { let status: Int; let body: String }
+struct HTTPError: Error { let status: Int }
 
 // таймаут внешних запросов
 let networkTimeout: TimeInterval = 15
 
-// проверка HTTP-ответа; тело усечено (не тащим весь ответ в лог)
+// эфемерная сессия для провайдеров: без дискового кэша запросов/ответов
+let tipSession = URLSession(configuration: .ephemeral)
+
+// проверка HTTP-ответа. тело ответа не логируем: оно контролируется эндпоинтом и
+// может утечь в системный лог, поэтому храним только статус
 func ensureOK(_ resp: URLResponse, _ data: Data) throws {
-    guard let http = resp as? HTTPURLResponse else {
-        throw HTTPError(status: -1, body: "не HTTP-ответ")
-    }
-    guard (200..<300).contains(http.statusCode) else {
-        throw HTTPError(status: http.statusCode,
-                        body: String(data: data.prefix(300), encoding: .utf8) ?? "<binary>")
-    }
+    guard let http = resp as? HTTPURLResponse else { throw HTTPError(status: -1) }
+    guard (200..<300).contains(http.statusCode) else { throw HTTPError(status: http.statusCode) }
 }
 
 // retries с warning-логами, затем raise последней ошибки (правило проекта).
@@ -52,7 +51,7 @@ struct OllamaProvider: TipProvider {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: Any] = ["model": model, "prompt": tipPrompt, "stream": false]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp, data)
             let decoded = try JSONDecoder().decode(OllamaResponse.self, from: data)
             return decoded.response.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -87,7 +86,7 @@ struct ClaudeProvider: TipProvider {
                 "messages": [["role": "user", "content": tipPrompt]],
             ]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp, data)
             let decoded = try JSONDecoder().decode(ClaudeResponse.self, from: data)
             return decoded.content.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -105,7 +104,7 @@ struct FactsAPIProvider: TipProvider {
             let url = URL(string: "https://uselessfacts.jsph.pl/api/v2/facts/random?language=en")!
             var req = URLRequest(url: url)
             req.timeoutInterval = networkTimeout
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp, data)
             return try JSONDecoder().decode(UselessFact.self, from: data).text
         }
@@ -122,7 +121,7 @@ struct RSSProvider: TipProvider {
         try await withRetries {
             var req = URLRequest(url: feedURL)
             req.timeoutInterval = networkTimeout
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp, data)
             guard let title = RSSFirstTitle().parse(data) else {
                 throw AssetError.missing("RSS <item><title>")

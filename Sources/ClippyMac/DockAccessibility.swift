@@ -19,27 +19,36 @@ func dockIconRect() -> NSRect? {
     guard axTrusted() else { return nil }
     guard let dock = NSRunningApplication
         .runningApplications(withBundleIdentifier: "com.apple.dock").first else { return nil }
-    let name = NSRunningApplication.current.localizedName
-        ?? (Bundle.main.infoDictionary?["CFBundleName"] as? String) ?? ""
-    guard !name.isEmpty else { return nil }
+    // Dock кладёт в title отображаемое имя; сверяем со всеми вариантами имени приложения,
+    // т.к. CFBundleName и CFBundleDisplayName могут различаться (иначе якорь тихо ломается)
+    let info = Bundle.main.infoDictionary
+    let names = Set([
+        NSRunningApplication.current.localizedName,
+        info?["CFBundleDisplayName"] as? String,
+        info?["CFBundleName"] as? String,
+    ].compactMap { $0 }.filter { !$0.isEmpty })
+    guard !names.isEmpty else { return nil }
 
     let dockApp = AXUIElementCreateApplication(dock.processIdentifier)
     guard let list = firstChild(of: dockApp, role: kAXListRole as String),
           let items = axChildren(list) else { return nil }
-    for item in items where axString(item, kAXTitleAttribute as String) == name {
-        return axRect(item)
+    for item in items {
+        if let title = axString(item, kAXTitleAttribute as String), names.contains(title) {
+            return axRect(item)
+        }
     }
     return nil
 }
 
-// доступ Accessibility; один раз показываем системный запрос, дальше молчим
+// системный запрос доступа показываем раз за запуск, а не навсегда: при переустановке
+// ad-hoc-подписи грант сбрасывается, и на следующем старте нужно попросить снова
+@MainActor private enum AXPromptState { static var shownThisLaunch = false }
+
 @MainActor
 private func axTrusted() -> Bool {
     if AXIsProcessTrusted() { return true }
-    let key = "axPromptShown"
-    let d = UserDefaults.standard
-    if !d.bool(forKey: key) {
-        d.set(true, forKey: key)
+    if !AXPromptState.shownThisLaunch {
+        AXPromptState.shownThisLaunch = true
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue()
         _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
     }

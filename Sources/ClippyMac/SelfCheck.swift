@@ -66,6 +66,14 @@ func runSelfCheckIfRequested() {
         precondition(gestures.isDisjoint(with: ["Idle1_1", "LookUp", "RestPose", "Show", "Hide"]),
                      "gestureNames must exclude idle/look/service anims")
 
+        // случайный персонаж: по возможности не текущий; единственный - возвращает себя
+        precondition(pickRandomOther(from: ["a"], current: "a") == "a", "single element returns itself")
+        precondition(pickRandomOther(from: ["a", "b"], current: "a") == "b", "excludes current when possible")
+        precondition(pickRandomOther(from: [], current: "a") == nil, "empty list -> nil")
+        // фолбэк-цепочка провайдеров: local сам по себе, иначе выбранный + local
+        precondition(providerChain(selected: .local) == [.local], "local chain is just local")
+        precondition(providerChain(selected: .claude) == [.claude, .local], "remote chain falls back to local")
+
         // библиотека персонажей: встроенный Clippy всегда доступен и грузится как из папки=nil
         let agents = discoverAgents()
         precondition(agents.contains { $0.name == builtInAgentName && $0.directory == nil },

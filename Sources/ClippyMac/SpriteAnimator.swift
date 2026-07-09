@@ -51,8 +51,11 @@ final class SpriteAnimator {
         self.idleNames = idle.isEmpty ? Array(agent.animations.keys) : idle
     }
 
-    // остановить текущую анимацию/idle (гасит цепочку по token) - пауза/при замене аниматора
-    func stop() { token += 1 }
+    // остановить текущую анимацию/idle (гасит цепочку по token) и доигрывающий звук
+    func stop() {
+        token += 1
+        for player in players.values where player.isPlaying { player.stop() }
+    }
 
     // «выразительные» жесты активного персонажа (для показа по клику/меню и оживления)
     var gestureNames: [String] { expressiveGestures(from: Array(agent.animations.keys)) }
@@ -71,7 +74,7 @@ final class SpriteAnimator {
     // главная экономия батареи), потом другая idle. branching здесь не нужен
     func loopIdle() {
         // иногда вместо idle - спонтанный жест (беззвучно, «оживление»): тот же ритм
-        // всплеск+отдых, лишних пробуждений и расхода батареи не добавляет (пункт 5)
+        // всплеск+отдых, лишних пробуждений и расхода батареи не добавляет
         if Double.random(in: 0..<1) < Self.spontaneousGestureChance,
            let g = gestureNames.randomElement(),
            let gf = agent.animations[g]?.frames, gf.count > 1 {
@@ -149,8 +152,10 @@ final class SpriteAnimator {
 
     private func render(_ frame: Frame) {
         // кадр может состоять из нескольких оверлеев (overlayCount>1) - рисуем стопкой
-        let layers = (frame.images ?? []).compactMap {
-            cropFrame(sheet: sheet, at: $0, frameSize: agent.frameSize)
+        let points = frame.images ?? []
+        let layers = points.compactMap { cropFrame(sheet: sheet, at: $0, frameSize: agent.frameSize) }
+        if layers.count < points.count {                 // кадр чужого агента вышел за спрайтшит
+            NSLog("clippy: кадр за границами спрайтшита - слой пропущен")
         }
         imageView.image = composite(layers)
         onRender?()
