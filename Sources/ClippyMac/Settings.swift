@@ -47,7 +47,7 @@ final class AppSettings: ObservableObject {
     @Published var pauseOnLowPower: Bool { didSet { d.set(pauseOnLowPower, forKey: K.pauseOnLowPower) } }
     // случайный персонаж при каждом запуске (по умолчанию выключено; не перетирает выбор молча)
     @Published var randomAgentOnLaunch: Bool { didSet { d.set(randomAgentOnLaunch, forKey: K.randomAgentOnLaunch) } }
-    // кормление файлом отправляет его в Корзину (по умолчанию выключено; включение подтверждается)
+    // кормление файлом отправляет его в Корзину (по умолчанию включено; сразу, без подтверждения)
     @Published var trashOnFeed: Bool { didSet { d.set(trashOnFeed, forKey: K.trashOnFeed) } }
 
     // настройки провайдеров (не секреты - в UserDefaults; ключ Claude - в Keychain)
@@ -98,13 +98,14 @@ final class AppSettings: ObservableObject {
             K.ollamaURL: Self.defaultOllamaURL,
             K.ollamaModel: Self.defaultOllamaModel,
             K.rssURL: "",
+            K.trashOnFeed: true,
         ])
         enabled = d.bool(forKey: K.enabled)
         providerKind = ProviderKind(rawValue: d.string(forKey: K.provider) ?? "") ?? .local
         muted = d.bool(forKey: K.muted)
         pauseOnLowPower = d.bool(forKey: K.pauseOnLowPower)   // по умолчанию false (ключ не задан)
         randomAgentOnLaunch = d.bool(forKey: K.randomAgentOnLaunch)   // по умолчанию false
-        trashOnFeed = d.bool(forKey: K.trashOnFeed)                   // по умолчанию false
+        trashOnFeed = d.bool(forKey: K.trashOnFeed)                   // по умолчанию true (зарегистрирован)
         ollamaURL = d.string(forKey: K.ollamaURL) ?? Self.defaultOllamaURL
         ollamaModel = d.string(forKey: K.ollamaModel) ?? Self.defaultOllamaModel
         rssURL = d.string(forKey: K.rssURL) ?? ""

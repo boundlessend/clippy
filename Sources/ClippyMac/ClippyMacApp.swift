@@ -14,7 +14,6 @@ struct ClippyControls: View {
         Toggle("Пауза в режиме энергосбережения", isOn: $settings.pauseOnLowPower)
             .onChange(of: settings.pauseOnLowPower) { _ in delegate.refreshIdle() }
         Toggle("Кормление файлом отправляет его в Корзину", isOn: $settings.trashOnFeed)
-            .onChange(of: settings.trashOnFeed) { on in if on { delegate.confirmTrashMode() } }
         Toggle("Запускать при входе", isOn: Binding(
             get: { isLoginItemEnabled() },
             set: { setLoginItem($0) }
@@ -197,17 +196,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         scheduleHide(after: bubbleSeconds)
     }
 
-    // подтверждение при включении режима корзины; при отмене откатываем тумблер (пункт 8)
-    func confirmTrashMode() {
-        let alert = NSAlert()
-        alert.messageText = "Режим корзины"
-        alert.informativeText = "Теперь при перетаскивании файла на иконку Clippy файл отправится в Корзину. Это обратимо (файл останется в Корзине), но будь внимателен."
-        alert.addButton(withTitle: "Включить")
-        alert.addButton(withTitle: "Отмена")
-        if alert.runModal() != .alertFirstButtonReturn {
-            AppSettings.shared.trashOnFeed = false
-        }
-    }
 
     // правый клик по иконке в доке: меню (Quit док добавляет сам)
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
