@@ -271,7 +271,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
     func showFact() {
         guard AppSettings.shared.enabled else { return }
-        let anchor = NSEvent.mouseLocation        // курсор сейчас у иконки в доке
+        // точная позиция иконки дока через Accessibility; нет доступа - фолбэк на курсор (аудит #17)
+        let anchor = dockAnchor(orientation: dockOrientation()) ?? NSEvent.mouseLocation
         Task { @MainActor in
             guard let tip = await self.fetchTip() else {
                 NSLog("clippy: фактов для персонажа нет - облачко не показываем")

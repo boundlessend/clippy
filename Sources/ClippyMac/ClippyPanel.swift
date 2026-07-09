@@ -34,6 +34,16 @@ func dockOrientation() -> DockOrientation {
     }
 }
 
+// pure: точка на краю иконки дока, обращённом к экрану (для якоря облачка).
+// док внизу -> верх иконки; слева -> правый край; справа -> левый край
+func dockEdgeAnchor(iconRect: NSRect, orientation: DockOrientation) -> NSPoint {
+    switch orientation {
+    case .bottom: return NSPoint(x: iconRect.midX, y: iconRect.maxY)
+    case .left:   return NSPoint(x: iconRect.maxX, y: iconRect.midY)
+    case .right:  return NSPoint(x: iconRect.minX, y: iconRect.midY)
+    }
+}
+
 // pure: левый нижний угол облачка так, чтобы оно стояло у иконки со стороны дока
 // и не вылезало за видимую область экрана
 func bubbleOrigin(anchor: NSPoint, orientation: DockOrientation,

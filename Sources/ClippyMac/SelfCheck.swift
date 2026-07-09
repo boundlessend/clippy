@@ -50,6 +50,15 @@ func runSelfCheckIfRequested() {
                                   bubbleSize: bsize, screen: vf).y >= anchor.y,
                      "bottom-dock bubble must sit above the click")
 
+        // якорь берётся с края иконки, обращённого к доку (низ -> верх, слева -> правый край, справа -> левый)
+        let icon = NSRect(x: 100, y: 200, width: 60, height: 60)
+        precondition(dockEdgeAnchor(iconRect: icon, orientation: .bottom) == NSPoint(x: icon.midX, y: icon.maxY),
+                     "bottom anchor must be top-center of icon")
+        precondition(dockEdgeAnchor(iconRect: icon, orientation: .left) == NSPoint(x: icon.maxX, y: icon.midY),
+                     "left anchor must be right-center of icon")
+        precondition(dockEdgeAnchor(iconRect: icon, orientation: .right) == NSPoint(x: icon.minX, y: icon.midY),
+                     "right anchor must be left-center of icon")
+
         // библиотека персонажей: встроенный Clippy всегда доступен и грузится как из папки=nil
         let agents = discoverAgents()
         precondition(agents.contains { $0.name == builtInAgentName && $0.directory == nil },
