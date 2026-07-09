@@ -59,6 +59,13 @@ func runSelfCheckIfRequested() {
         precondition(dockEdgeAnchor(iconRect: icon, orientation: .right) == NSPoint(x: icon.minX, y: icon.midY),
                      "right anchor must be left-center of icon")
 
+        // жесты персонажа: список содержит реальные жесты, но не idle/look/служебные
+        let gestures = Set(expressiveGestures(from: Array(agent.animations.keys)))
+        precondition(gestures.contains("Wave") && gestures.contains("Congratulate"),
+                     "gestureNames must include real gestures")
+        precondition(gestures.isDisjoint(with: ["Idle1_1", "LookUp", "RestPose", "Show", "Hide"]),
+                     "gestureNames must exclude idle/look/service anims")
+
         // библиотека персонажей: встроенный Clippy всегда доступен и грузится как из папки=nil
         let agents = discoverAgents()
         precondition(agents.contains { $0.name == builtInAgentName && $0.directory == nil },

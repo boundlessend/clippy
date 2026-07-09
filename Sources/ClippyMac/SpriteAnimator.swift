@@ -13,6 +13,19 @@ func nextFrameIndex(current: Int, frames: [Frame]) -> Int {
     return current + 1
 }
 
+// pure: «выразительные» жесты из набора имён анимаций - для показа по клику/меню и
+// спонтанного оживления. отсекаем idle/look/move и служебные Show/Hide/RestPose/Blink,
+// а также обрывки переходов *Return/*Continued
+func expressiveGestures(from animationNames: [String]) -> [String] {
+    let skipPrefix = ["Idle", "Look", "Move", "DeepIdle"]
+    let skipExact: Set<String> = ["Show", "Hide", "HideQuick", "RestPose", "Blink"]
+    return animationNames.filter { name in
+        if skipExact.contains(name) { return false }
+        if skipPrefix.contains(where: { name.hasPrefix($0) }) { return false }
+        return !name.hasSuffix("Return") && !name.hasSuffix("Continued")
+    }.sorted()
+}
+
 // проигрыватель кадров: рисует кадр, играет его звук, ветвится по branching.
 @MainActor
 final class SpriteAnimator {
@@ -41,6 +54,11 @@ final class SpriteAnimator {
     // остановить текущую анимацию/idle (гасит цепочку по token) - пауза/при замене аниматора
     func stop() { token += 1 }
 
+    // «выразительные» жесты активного персонажа (для показа по клику/меню и оживления)
+    var gestureNames: [String] { expressiveGestures(from: Array(agent.animations.keys)) }
+
+    private static let spontaneousGestureChance = 0.2   // доля idle-циклов, где вместо idle играем жест
+
     // проиграть анимацию (maxSteps ограничивает зацикленные idle), затем completion
     func play(_ name: String, maxSteps: Int? = nil, then completion: (() -> Void)? = nil) {
         guard let anim = agent.animations[name] else { completion?(); return }
@@ -52,6 +70,16 @@ final class SpriteAnimator {
     // рывка на стыке; после всплеска замираем на паузу (не крутим непрерывно -
     // главная экономия батареи), потом другая idle. branching здесь не нужен
     func loopIdle() {
+        // иногда вместо idle - спонтанный жест (беззвучно, «оживление»): тот же ритм
+        // всплеск+отдых, лишних пробуждений и расхода батареи не добавляет (пункт 5)
+        if Double.random(in: 0..<1) < Self.spontaneousGestureChance,
+           let g = gestureNames.randomElement(),
+           let gf = agent.animations[g]?.frames, gf.count > 1 {
+            playSequence(gf, order: Array(gf.indices), cycles: 1) { [weak self] in
+                self?.restThenLoop(gf.first)
+            }
+            return
+        }
         let name = idleNames.randomElement() ?? "RestPose"
         guard let frames = agent.animations[name]?.frames, frames.count > 1 else {
             restThenLoop(agent.animations[name]?.frames.first)   // одиночный кадр -> сразу отдых

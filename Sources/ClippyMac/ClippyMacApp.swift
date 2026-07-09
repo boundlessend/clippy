@@ -13,6 +13,8 @@ struct ClippyControls: View {
         Toggle("Звук", isOn: Binding(get: { !settings.muted }, set: { settings.muted = !$0 }))
         Toggle("Пауза в режиме энергосбережения", isOn: $settings.pauseOnLowPower)
             .onChange(of: settings.pauseOnLowPower) { _ in delegate.refreshIdle() }
+        Toggle("Кормление файлом отправляет его в Корзину", isOn: $settings.trashOnFeed)
+            .onChange(of: settings.trashOnFeed) { on in if on { delegate.confirmTrashMode() } }
         Toggle("Запускать при входе", isOn: Binding(
             get: { isLoginItemEnabled() },
             set: { setLoginItem($0) }
@@ -108,11 +110,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // ponytail: фиксированная длительность показа баллона
     private let bubbleSeconds: Double = 8
 
-    private static let gestures = [
-        "Wave", "Congratulate", "GetAttention", "Alert",
-        "CheckingSomething", "Explain", "Processing", "Thinking", "Searching",
-    ]
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         reloadAgents()                            // список персонажей (встроенный + из папки)
         // случайный персонаж при старте, если включено в настройках (до setupDock)
@@ -179,11 +176,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         return true
     }
 
+    // файлы перетащили на иконку в доке: персонаж их «съедает» (пункты 4/8).
+    // в режиме корзины отправляем в Корзину (обратимо), иначе файл не трогаем
+    func application(_ application: NSApplication, open urls: [URL]) {
+        feed(urls)
+    }
+
+    private func feed(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        playRandomGesture()                                   // реакция персонажа в доке
+        let toTrash = AppSettings.shared.trashOnFeed
+        if toTrash {
+            NSWorkspace.shared.recycle(urls) { _, error in
+                if let error { NSLog("clippy: не удалось отправить в корзину: \(error)") }
+            }
+        }
+        let label = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) файлов"
+        let anchor = dockAnchor(orientation: dockOrientation()) ?? NSEvent.mouseLocation
+        showBubble(toTrash ? "Ням! \(label) - в Корзину" : "Ням! \(label)", anchor: anchor)
+        scheduleHide(after: bubbleSeconds)
+    }
+
+    // подтверждение при включении режима корзины; при отмене откатываем тумблер (пункт 8)
+    func confirmTrashMode() {
+        let alert = NSAlert()
+        alert.messageText = "Режим корзины"
+        alert.informativeText = "Теперь при перетаскивании файла на иконку Clippy файл отправится в Корзину. Это обратимо (файл останется в Корзине), но будь внимателен."
+        alert.addButton(withTitle: "Включить")
+        alert.addButton(withTitle: "Отмена")
+        if alert.runModal() != .alertFirstButtonReturn {
+            AppSettings.shared.trashOnFeed = false
+        }
+    }
+
     // правый клик по иконке в доке: меню (Quit док добавляет сам)
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let m = NSMenu()
         m.addItem(withTitle: "Показать факт", action: #selector(miFact), keyEquivalent: "")
         m.addItem(withTitle: "Показать жест", action: #selector(miGesture), keyEquivalent: "")
+        // подменю конкретных жестов активного персонажа (пункт 6)
+        if let gestures = animator?.gestureNames, !gestures.isEmpty {
+            let gItem = NSMenuItem(title: "Жесты", action: nil, keyEquivalent: "")
+            let gSub = NSMenu()
+            for g in gestures {
+                let it = NSMenuItem(title: g, action: #selector(miPlayGesture(_:)), keyEquivalent: "")
+                it.target = self
+                it.representedObject = g
+                gSub.addItem(it)
+            }
+            gItem.submenu = gSub
+            m.addItem(gItem)
+        }
         m.addItem(.separator())
 
         // подменю выбора персонажа (галочка на активном) + быстрый рандом
@@ -256,6 +299,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
               name != AppSettings.shared.activeAgent else { return }
         AppSettings.shared.activeAgent = name
         applyAgentChange()
+    }
+
+    // проиграть конкретный жест из подменю «Жесты» (пункт 6)
+    @objc private func miPlayGesture(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        animator?.play(name, maxSteps: 60) { [weak self] in self?.refreshIdle() }
     }
     @objc private func miAbout() {
         NSApp.activate(ignoringOtherApps: true)
@@ -337,12 +386,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // MARK: - факт в облачке у дока
 
-    // проиграть случайный жест в доке, затем вернуться в idle (через гейт экрана/энергосбережения).
-    // maxSteps ограничивает зацикленные жесты, чтобы не зависли
+    // проиграть случайный жест активного персонажа, затем вернуться в idle (через гейт
+    // экрана/энергосбережения). maxSteps ограничивает зацикленные жесты, чтобы не зависли
     private func playRandomGesture() {
-        animator?.play(Self.gestures.randomElement() ?? "Wave", maxSteps: 60) { [weak self] in
-            self?.refreshIdle()
-        }
+        guard let animator else { return }
+        let name = animator.gestureNames.randomElement() ?? "Wave"
+        animator.play(name, maxSteps: 60) { [weak self] in self?.refreshIdle() }
     }
 
     // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
