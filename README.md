@@ -23,11 +23,13 @@
 
 ## Features
 
-- **animated Dock icon** - the app always lives in the Dock, and your chosen character animates there with a smooth back-and-forth idle loop.
+- **animated Dock icon** - the app always lives in the Dock, and your chosen character animates there with a smooth idle loop that rests between bursts and occasionally throws in a spontaneous gesture.
 - **a fact on click** - left-click the Dock icon and a fresh tip appears in a speech bubble right next to the icon.
 - **Dock-aware bubble** - the bubble auto-sizes to the text, sits next to the icon (following the cursor on the icon), and its tail points at the Dock, wherever the Dock is (bottom / left / right).
-- **Dock menu** - right-click the Dock icon: Show a fact / Settings… / About.
-- **characters** - Clippy plus five more in the box (Merlin, Genie, Bonzi, Links, Rover), and any custom character dropped into the `Agents` folder (a subfolder with `agent.json` + `map.png`); switch in Settings. Multi-layer sprites are composited, so full Microsoft Agent characters render correctly.
+- **Dock menu** - right-click the Dock icon: Show a fact / Show a gesture / Gestures (pick a specific one) / Character (pick one) / Random character / Settings… / About.
+- **feed files** - drag a file onto the Dock icon and the character reacts; by default the file goes to the Trash (toggle in Settings).
+- **battery-friendly** - the idle animation rests between bursts and stops when the screen is locked or the display sleeps; an optional toggle also pauses it in Low Power Mode.
+- **characters** - Clippy plus five more in the box (Merlin, Genie, Bonzi, Links, Rover), and any custom character dropped into the `Agents` folder (a subfolder with `agent.json` + `map.png`); switch in Settings, shuffle from the Dock menu, or randomize on every launch. Multi-layer sprites are composited, so full Microsoft Agent characters render correctly.
 - **per-character facts** - each character shows its own facts. Clippy ships with ~600 lines in his own voice; a custom character shows facts only if you add its own `tips.json`, otherwise nothing pops up.
 - **content sources** - besides local facts, Ollama / Claude / RSS / facts-API providers with an automatic fallback to local.
 - **sound** - the original animation voices (off by default).
