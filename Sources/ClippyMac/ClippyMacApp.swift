@@ -11,6 +11,8 @@ struct ClippyControls: View {
         Divider()
         Toggle("Включён", isOn: $settings.enabled)
         Toggle("Звук", isOn: Binding(get: { !settings.muted }, set: { settings.muted = !$0 }))
+        Toggle("Пауза в режиме энергосбережения", isOn: $settings.pauseOnLowPower)
+            .onChange(of: settings.pauseOnLowPower) { _ in delegate.refreshIdle() }
         Toggle("Запускать при входе", isOn: Binding(
             get: { isLoginItemEnabled() },
             set: { setLoginItem($0) }
@@ -96,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     private var bubblePanel: NSPanel?                 // облачко с фактом у дока
     private var hideWork: DispatchWorkItem?
     private var settingsWindow: NSWindow?
+    private var screenOff = false                    // экран заблокирован или дисплей спит
 
     var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
@@ -122,22 +125,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     }
 
     // не крутить idle, когда иконка не видна (экран заблокирован или дисплей спит) -
-    // экономия CPU/батареи
+    // экономия CPU/батареи; плюс опциональная пауза в режиме энергосбережения
     private func setupPowerNotifications() {
         let dc = DistributedNotificationCenter.default()
         dc.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) {
-            [weak self] _ in MainActor.assumeIsolated { self?.animator?.stop() }
+            [weak self] _ in MainActor.assumeIsolated { self?.setScreenOff(true) }
         }
         dc.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) {
-            [weak self] _ in MainActor.assumeIsolated { self?.animator?.loopIdle() }
+            [weak self] _ in MainActor.assumeIsolated { self?.setScreenOff(false) }
         }
         let ws = NSWorkspace.shared.notificationCenter
         ws.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) {
-            [weak self] _ in MainActor.assumeIsolated { self?.animator?.stop() }
+            [weak self] _ in MainActor.assumeIsolated { self?.setScreenOff(true) }
         }
         ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) {
-            [weak self] _ in MainActor.assumeIsolated { self?.animator?.loopIdle() }
+            [weak self] _ in MainActor.assumeIsolated { self?.setScreenOff(false) }
         }
+        // режим энергосбережения включили/выключили - пересчитать (пауза, если стоит галочка)
+        NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.refreshIdle() }
+        }
+    }
+
+    // экран погас/зажёгся -> пересчитать, крутить ли idle
+    private func setScreenOff(_ off: Bool) {
+        screenOff = off
+        refreshIdle()
+    }
+
+    // idle крутится только при активном экране и без паузы по энергосбережению.
+    // единая точка решения: зовётся на блокировку/сон/энергосбережение/смену тумблера
+    func refreshIdle() {
+        let lowPowerPause = AppSettings.shared.pauseOnLowPower
+            && ProcessInfo.processInfo.isLowPowerModeEnabled
+        if screenOff || lowPowerPause { animator?.stop() }
+        else { animator?.loopIdle() }
     }
 
     // левый клик по иконке в доке: показать факт, но если открыто «настоящее» окно
@@ -260,7 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
                                    onRender: { NSApp.dockTile.display() })
             animator?.stop()                       // погасить прежний, чтобы не дрались за иконку
             animator = a
-            a.play("Show") { [weak a] in a?.loopIdle() }
+            a.play("Show") { [weak self] in self?.refreshIdle() }   // idle через гейт (экран/энергосбережение)
         } catch {
             NSLog("clippy: failed to build dock animator: \(error)")
         }
@@ -282,7 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             self.scheduleHide(after: self.bubbleSeconds)   // сам отменяет прежний таймер
             // короткая реакция персонажа в доке (maxSteps - чтобы зацикленные жесты не зависли)
             self.animator?.play(Self.gestures.randomElement() ?? "Wave", maxSteps: 60) {
-                [weak self] in self?.animator?.loopIdle()
+                [weak self] in self?.refreshIdle()
             }
         }
     }

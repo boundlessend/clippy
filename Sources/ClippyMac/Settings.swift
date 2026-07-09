@@ -43,6 +43,8 @@ final class AppSettings: ObservableObject {
     @Published var enabled: Bool { didSet { d.set(enabled, forKey: K.enabled) } }
     @Published var providerKind: ProviderKind { didSet { d.set(providerKind.rawValue, forKey: K.provider) } }
     @Published var muted: Bool { didSet { d.set(muted, forKey: K.muted) } }
+    // пауза анимации в доке при включённом режиме энергосбережения (по умолчанию выключено)
+    @Published var pauseOnLowPower: Bool { didSet { d.set(pauseOnLowPower, forKey: K.pauseOnLowPower) } }
 
     // настройки провайдеров (не секреты - в UserDefaults; ключ Claude - в Keychain)
     @Published var ollamaURL: String { didSet { d.set(ollamaURL, forKey: K.ollamaURL) } }
@@ -73,6 +75,7 @@ final class AppSettings: ObservableObject {
         static let enabled = "enabled"
         static let provider = "providerKind"
         static let muted = "muted"
+        static let pauseOnLowPower = "pauseOnLowPower"
         static let ollamaURL = "ollamaURL"
         static let ollamaModel = "ollamaModel"
         static let rssURL = "rssURL"
@@ -93,6 +96,7 @@ final class AppSettings: ObservableObject {
         enabled = d.bool(forKey: K.enabled)
         providerKind = ProviderKind(rawValue: d.string(forKey: K.provider) ?? "") ?? .local
         muted = d.bool(forKey: K.muted)
+        pauseOnLowPower = d.bool(forKey: K.pauseOnLowPower)   // по умолчанию false (ключ не задан)
         ollamaURL = d.string(forKey: K.ollamaURL) ?? Self.defaultOllamaURL
         ollamaModel = d.string(forKey: K.ollamaModel) ?? Self.defaultOllamaModel
         rssURL = d.string(forKey: K.rssURL) ?? ""

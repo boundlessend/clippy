@@ -49,22 +49,31 @@ final class SpriteAnimator {
     }
 
     // живой idle: анимация «туда-сюда» (кадры вперёд, затем назад) - плавнее, без
-    // рывка на стыке; через пару циклов берём другую idle. branching здесь не нужен
+    // рывка на стыке; после всплеска замираем на паузу (не крутим непрерывно -
+    // главная экономия батареи), потом другая idle. branching здесь не нужен
     func loopIdle() {
         let name = idleNames.randomElement() ?? "RestPose"
         guard let frames = agent.animations[name]?.frames, frames.count > 1 else {
-            if let f = agent.animations[name]?.frames.first { render(f) }   // одиночный кадр
-            token += 1
-            let myToken = token
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-                guard let self, myToken == self.token else { return }
-                self.loopIdle()
-            }
+            restThenLoop(agent.animations[name]?.frames.first)   // одиночный кадр -> сразу отдых
             return
         }
         let fwd = Array(frames.indices)                          // 0..n-1
         let back = Array(fwd.dropFirst().dropLast().reversed())  // n-2..1 (крайние не дублируем)
-        playSequence(frames, order: fwd + back, cycles: 2) { [weak self] in self?.loopIdle() }
+        playSequence(frames, order: fwd + back, cycles: 2) { [weak self] in
+            self?.restThenLoop(frames.first)
+        }
+    }
+
+    // замереть на кадре покоя случайные 20-45 с, затем снова idle: чтобы иконка дока
+    // не перерисовывалась непрерывно (постоянные dockTile.display() - основной расход)
+    private func restThenLoop(_ restFrame: Frame?) {
+        if let restFrame { render(restFrame) }                   // нейтральная поза
+        token += 1
+        let myToken = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double.random(in: 20...45)) { [weak self] in
+            guard let self, myToken == self.token else { return }
+            self.loopIdle()
+        }
     }
 
     // проиграть кадры в заданном порядке, повторить cycles раз, затем completion.
