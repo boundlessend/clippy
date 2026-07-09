@@ -49,6 +49,12 @@ struct ClippyControls: View {
             SecureField("Ключ Claude API", text: $settings.claudeKey)
         case .rss:
             TextField("Адрес RSS-ленты", text: $settings.rssURL)
+            // ATS блокирует http; фид по http не загрузится (аудит #28)
+            if settings.rssURL.hasPrefix("http://") {
+                Text("http не поддерживается (ATS): нужен адрес на https")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         case .local, .facts:
             EmptyView()
         }
@@ -83,7 +89,7 @@ let settingsWidth: CGFloat = 340
 let settingsHeight: CGFloat = 520
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, ObservableObject {
     @Published private(set) var availableAgents: [AgentRef] = []   // встроенный + из папки
     private var dockView: NSImageView?                // куда рисует аниматор (иконка в доке)
     private var animator: SpriteAnimator?
@@ -109,6 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         NSApp.setActivationPolicy(.regular)       // всегда в доке
         setupDock()                               // анимированный персонаж в доке
         setupPowerNotifications()                 // пауза анимации при блокировке/сне экрана
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AppSettings.shared.flushPendingWrites()   // не потерять последний ввод ключа (аудит #13)
     }
 
     // не крутить idle, когда иконка не видна (экран заблокирован или дисплей спит) -
@@ -208,11 +218,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
             w.title = "Настройки Clippy"
             w.isReleasedWhenClosed = false
+            w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла (аудит #30)
             w.center()
             settingsWindow = w
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    // окно настроек закрыли: отпустить ссылку, иначе граф окна держит delegate (retain-цикл)
+    func windowWillClose(_ notification: Notification) {
+        if (notification.object as? NSWindow) === settingsWindow { settingsWindow = nil }
     }
 
     // MARK: - персонаж в доке

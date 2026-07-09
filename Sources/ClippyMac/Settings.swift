@@ -48,7 +48,17 @@ final class AppSettings: ObservableObject {
     @Published var ollamaURL: String { didSet { d.set(ollamaURL, forKey: K.ollamaURL) } }
     @Published var ollamaModel: String { didSet { d.set(ollamaModel, forKey: K.ollamaModel) } }
     @Published var rssURL: String { didSet { d.set(rssURL, forKey: K.rssURL) } }
-    @Published var claudeKey: String { didSet { Keychain.set(claudeKey, account: K.claudeKey) } }
+    @Published var claudeKey: String {
+        didSet {
+            // ключ пишем в Keychain с дебаунсом, а не на каждый символ ввода (аудит #13)
+            claudeKeyWrite?.cancel()
+            let key = claudeKey
+            let work = DispatchWorkItem { Keychain.set(key, account: K.claudeKey) }
+            claudeKeyWrite = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+        }
+    }
+    private var claudeKeyWrite: DispatchWorkItem?
 
     // включённые категории локальных фактов
     @Published var enabledCategories: Set<String> {
@@ -89,5 +99,13 @@ final class AppSettings: ObservableObject {
         claudeKey = Keychain.get(account: K.claudeKey) ?? ""
         enabledCategories = d.stringArray(forKey: K.categories).map(Set.init) ?? Self.allCategoryKeys
         activeAgent = d.string(forKey: K.activeAgent) ?? builtInAgentName
+    }
+
+    // немедленно записать отложенный ключ Claude (напр. при выходе), чтобы не потерять ввод
+    func flushPendingWrites() {
+        guard claudeKeyWrite != nil else { return }
+        claudeKeyWrite?.cancel()
+        claudeKeyWrite = nil
+        Keychain.set(claudeKey, account: K.claudeKey)
     }
 }
