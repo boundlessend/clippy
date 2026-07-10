@@ -1,61 +1,49 @@
 import Foundation
+import ServiceManagement
 
-// автозапуск через LaunchAgent (без подписи и Xcode, для личного использования).
-// plist указывает на исполняемый файл, запущенный в момент включения тумблера
-// (Bundle.main.executablePath), поэтому включать автозапуск нужно из установленного
-// в /Applications приложения, а не из `swift run`
-
-private let loginLabel = "com.clippymac.agent"
-
-private func loginPlistURL() -> URL {
-    FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/LaunchAgents/\(loginLabel).plist")
-}
+// автозапуск через SMAppService (macOS 13+): регистрирует само приложение как объект входа,
+// как у обычных приложений (видно в Системных настройках -> Основные -> Объекты входа).
+// не запускает вторую копию при включении и не завершает текущую при выключении.
+// требует установленного .app (не `swift run`).
 
 func isLoginItemEnabled() -> Bool {
-    FileManager.default.fileExists(atPath: loginPlistURL().path)
+    switch SMAppService.mainApp.status {
+    case .enabled, .requiresApproval: return true      // requiresApproval: включено, ждёт подтверждения в Системных настройках
+    default: return false
+    }
 }
 
 func setLoginItem(_ enabled: Bool) {
-    enabled ? enableLoginItem() : disableLoginItem()
-}
-
-private func enableLoginItem() {
-    let exe = Bundle.main.executablePath ?? CommandLine.arguments[0]
-    let plist: [String: Any] = [
-        "Label": loginLabel,
-        "ProgramArguments": [exe],
-        "RunAtLoad": true,
-    ]
-    let url = loginPlistURL()
+    removeLegacyLaunchAgent()                           // убрать LaunchAgent из прежней реализации
     do {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-        try data.write(to: url)
-        launchctl(["load", url.path])
-    } catch {
-        NSLog("clippy: login item enable failed: \(error)")
-    }
-}
-
-private func disableLoginItem() {
-    let url = loginPlistURL()
-    launchctl(["unload", url.path])
-    try? FileManager.default.removeItem(at: url)
-}
-
-private func launchctl(_ args: [String]) {
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-    p.arguments = args
-    do {
-        try p.run()
-        p.waitUntilExit()
-        if p.terminationStatus != 0 {
-            NSLog("clippy: launchctl \(args.first ?? "") exited \(p.terminationStatus)")
+        if enabled {
+            if SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
+        } else {
+            if SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
         }
     } catch {
-        NSLog("clippy: launchctl failed to run: \(error)")
+        NSLog("clippy: не удалось изменить автозапуск: \(error)")
     }
+}
+
+// одноразовая миграция при запуске: если остался LaunchAgent прежней реализации,
+// перенести автозапуск на SMAppService (сохранив «включено»), чтобы при входе не плодилась копия
+func migrateLegacyLoginItemIfNeeded() {
+    let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/LaunchAgents/com.clippymac.agent.plist")
+    guard FileManager.default.fileExists(atPath: url.path) else { return }
+    setLoginItem(true)                                 // удалит plist и зарегистрирует через SMAppService
+}
+
+// удалить LaunchAgent прежней реализации (иначе при входе поднималась вторая копия)
+private func removeLegacyLaunchAgent() {
+    let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/LaunchAgents/com.clippymac.agent.plist")
+    guard FileManager.default.fileExists(atPath: url.path) else { return }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+    p.arguments = ["unload", url.path]
+    try? p.run()
+    p.waitUntilExit()
+    try? FileManager.default.removeItem(at: url)
 }

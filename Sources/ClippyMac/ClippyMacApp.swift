@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         NSApp.setActivationPolicy(.regular)       // всегда в доке
         setupDock()                               // анимированный персонаж в доке
         setupPowerNotifications()                 // пауза анимации при блокировке/сне экрана
+        migrateLegacyLoginItemIfNeeded()          // перенос автозапуска со старого LaunchAgent на SMAppService
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -290,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             w.isReleasedWhenClosed = false
             w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла
             w.center()
+            w.setFrameAutosaveName("ClippySettingsWindow")   // запоминаем размер и позицию между открытиями
             settingsWindow = w
         }
         NSApp.activate(ignoringOtherApps: true)

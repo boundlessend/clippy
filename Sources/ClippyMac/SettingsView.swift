@@ -101,8 +101,7 @@ struct SettingsRootView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 18)
             }
-            .frame(maxWidth: 640)          // предел ширины контента для читаемости
-            .frame(maxWidth: .infinity)    // и центрируем колонку в широком окне
+            .frame(maxWidth: .infinity)    // контент тянется на всю ширину окна (шапка, группы - тоже)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // тянемся за окном
         .background(P.ground)
