@@ -101,9 +101,10 @@ struct SettingsRootView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 18)
             }
-            .frame(width: settingsWidth)
+            .frame(maxWidth: 640)          // предел ширины контента для читаемости
+            .frame(maxWidth: .infinity)    // и центрируем колонку в широком окне
         }
-        .frame(width: settingsWidth, height: settingsHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)   // тянемся за окном
         .background(P.ground)
         .scrollContentBackground(.hidden)
     }

@@ -285,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
                 backing: .buffered, defer: false)
             w.contentViewController = hosting
             w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
+            w.minSize = NSSize(width: 380, height: 420)   // не даём окну схлопнуться
             w.title = "Настройки Clippy"
             w.isReleasedWhenClosed = false
             w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла
