@@ -80,6 +80,16 @@ func runSelfCheckIfRequested() {
                      "built-in agent missing from library")
         _ = try loadClippyAgent(from: nil)
 
+        // факты персонажей: у кого есть свой tips.json - грузится и непустой (проверяет dict+flat)
+        var agentTipsChecked = 0
+        for ref in agents {
+            guard let dir = ref.directory,
+                  FileManager.default.fileExists(atPath: dir.appendingPathComponent("tips.json").path)
+            else { continue }
+            _ = try AgentTipsProvider(directory: dir, enabled: AppSettings.allCategoryKeys)
+            agentTipsChecked += 1
+        }
+
         // branching/exitBranch: все целевые индексы в границах своей анимации
         var soundKeys = Set<String>()
         for (name, anim) in agent.animations {
@@ -108,7 +118,8 @@ func runSelfCheckIfRequested() {
 
         print("selftest ok: \(agent.animations.count) animations, "
               + "\(cropped) frames cropped, sheet \(sheet.width)x\(sheet.height), "
-              + "\(tips.count) tips, \(soundKeys.count) sounds")
+              + "\(tips.count) tips, \(soundKeys.count) sounds, "
+              + "\(agentTipsChecked) agent tip files")
         exit(0)
     } catch {
         FileHandle.standardError.write(Data("selftest failed: \(error)\n".utf8))
