@@ -36,6 +36,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- ATS по умолчанию режет http; localhost (Ollama) разрешаем через loopback-исключение,
+       публичные http остаются запрещены (для них - только https) -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key><true/>
+  </dict>
   <key>NSHumanReadableCopyright</key><string>исходный код - MIT; ассеты Clippy - Microsoft</string>
   <key>CFBundleDocumentTypes</key>
   <array>
@@ -52,7 +58,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> ad-hoc signing"
-codesign --force --deep --sign - "$APP"
+# подписываем вложенный ресурс-бандл, затем сам .app (--deep у codesign помечен deprecated)
+codesign --force --sign - "$APP/Contents/Resources/$(basename "$RESBUNDLE")"
+codesign --force --sign - "$APP"
 
 echo "==> creating dmg"
 hdiutil create -volname "ClippyMac" -srcfolder "$APP" -ov -format UDZO "$DMG" >/dev/null
