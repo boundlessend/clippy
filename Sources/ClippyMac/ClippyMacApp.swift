@@ -12,101 +12,27 @@ func providerChain(selected: ProviderKind) -> [ProviderKind] {
     selected == .local ? [.local] : [selected, .local]
 }
 
-// набор контролов для окна настроек
-struct ClippyControls: View {
-    @ObservedObject var delegate: AppDelegate
-    @ObservedObject private var settings = AppSettings.shared
-
-    var body: some View {
-        Button("Показать факт") { delegate.showFact() }
-        Divider()
-        Toggle("Включён", isOn: $settings.enabled)
-        Toggle("Звук", isOn: Binding(get: { !settings.muted }, set: { settings.muted = !$0 }))
-        Toggle("Пауза в режиме энергосбережения", isOn: $settings.pauseOnLowPower)
-            .onChange(of: settings.pauseOnLowPower) { _ in delegate.refreshIdle() }
-        Toggle("Кормление файлом отправляет его в Корзину", isOn: $settings.trashOnFeed)
-            .onChange(of: settings.trashOnFeed) { _ in settings.feedTrashAsked = true }
-        Toggle("Запускать при входе", isOn: Binding(
-            get: { isLoginItemEnabled() },
-            set: { setLoginItem($0) }
-        ))
-        Divider()
-        // источник контента + поля выбранного источника
-        Picker("Источник", selection: $settings.providerKind) {
-            ForEach(ProviderKind.allCases) { Text($0.title).tag($0) }
-        }
-        providerFields
-        // категории есть только у встроенного Clippy; для других персонажей не показываем
-        if settings.providerKind == .local && settings.activeAgent == builtInAgentName {
-            categoryToggles
-        }
-        Divider()
-        // персонаж: встроенный Clippy или папка из ~/…/ClippyMac/Agents
-        Picker("Персонаж", selection: $settings.activeAgent) {
-            ForEach(delegate.availableAgents) { Text($0.name).tag($0.name) }
-        }
-        .onChange(of: settings.activeAgent) { _ in delegate.applyAgentChange() }
-        HStack {
-            Button("Папка персонажей") { delegate.showAgentsFolder() }
-            Button("Обновить список") { delegate.reloadAgents() }
-        }
-        Toggle("Случайный персонаж при запуске", isOn: $settings.randomAgentOnLaunch)
-        Divider()
-        Button("Выход") { NSApplication.shared.terminate(nil) }
-    }
-
-    // поля настроек под выбранный источник (ключ Claude - через SecureField)
-    @ViewBuilder private var providerFields: some View {
-        switch settings.providerKind {
-        case .ollama:
-            TextField("Адрес Ollama", text: $settings.ollamaURL)
-            TextField("Модель Ollama", text: $settings.ollamaModel)
-        case .claude:
-            SecureField("Ключ Claude API", text: $settings.claudeKey)
-        case .rss:
-            TextField("Адрес RSS-ленты", text: $settings.rssURL)
-            // ATS блокирует http; фид по http не загрузится
-            if settings.rssURL.hasPrefix("http://") {
-                Text("http не поддерживается (ATS): нужен адрес на https")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-        case .local, .facts:
-            EmptyView()
-        }
-    }
-
-    // категории фактов Clippy (действуют для встроенного Clippy + источника «Локальные советы»)
-    @ViewBuilder private var categoryToggles: some View {
-        Text("Категории фактов").font(.caption).foregroundStyle(.secondary)
-        ForEach(AppSettings.tipCategories) { cat in
-            Toggle(cat.title, isOn: Binding(
-                get: { settings.enabledCategories.contains(cat.key) },
-                set: { on in
-                    if on { settings.enabledCategories.insert(cat.key) }
-                    else { settings.enabledCategories.remove(cat.key) }
-                }))
-        }
-    }
+// статичный аватар персонажа: кадр RestPose (иначе первый непустой), обрезанный из спрайтшита
+func agentAvatarImage(for ref: AgentRef) -> NSImage? {
+    guard let agent = try? loadClippyAgent(from: ref.directory),
+          let sheet = try? loadSpriteSheet(from: ref.directory) else { return nil }
+    let anim = agent.animations["RestPose"] ?? agent.animations["Idle1_1"]
+        ?? agent.animations.values.first
+    guard let point = anim?.frames.lazy.compactMap({ $0.images?.first }).first,
+          let cg = cropFrame(sheet: sheet, at: point, frameSize: agent.frameSize) else { return nil }
+    return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
 }
 
-// панель настроек для окна
-struct SettingsRootView: View {
-    let delegate: AppDelegate
-
-    var body: some View {
-        Form { ClippyControls(delegate: delegate) }
-            .frame(width: settingsWidth, height: settingsHeight)
-    }
-}
+// окно настроек и его компоненты - в SettingsView.swift (struct SettingsRootView)
 
 // размеры окна настроек - одно место (окно и контент совпадают)
-let settingsWidth: CGFloat = 340
-let settingsHeight: CGFloat = 520
+let settingsWidth: CGFloat = 470
+let settingsHeight: CGFloat = 640
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, ObservableObject {
     @Published private(set) var availableAgents: [AgentRef] = []   // встроенный + из папки
+    @Published private(set) var agentAvatars: [String: NSImage] = [:]   // имя -> аватар (кадр RestPose)
     private var dockView: NSImageView?                // куда рисует аниматор (иконка в доке)
     private var animator: SpriteAnimator?
     private var bubblePanel: NSPanel?                 // облачко с фактом у дока
@@ -282,6 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // пересканировать папку персонажей; если активный пропал - вернуться к встроенному
     func reloadAgents() {
         availableAgents = discoverAgents()
+        agentAvatars = Dictionary(
+            availableAgents.compactMap { ref in agentAvatarImage(for: ref).map { (ref.name, $0) } },
+            uniquingKeysWith: { first, _ in first })
         if !availableAgents.contains(where: { $0.name == AppSettings.shared.activeAgent }) {
             AppSettings.shared.activeAgent = builtInAgentName
             rebuildDockAnimator()          // onChange не сработает на программный сброс
@@ -414,7 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // MARK: - факт в облачке у дока
 
     // проиграть случайный жест активного персонажа
-    private func playRandomGesture() {
+    func playRandomGesture() {
         guard let animator else { return }
         playGesture(animator.gestureNames.randomElement() ?? "Wave")
     }
