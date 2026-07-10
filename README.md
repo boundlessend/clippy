@@ -30,10 +30,10 @@
 - **feed files** - drag a file onto the Dock icon and the character reacts; the first time it asks whether fed files should go to the Trash (changeable in Settings).
 - **battery-friendly** - the idle animation rests between bursts and stops when the screen is locked or the display sleeps; an optional toggle also pauses it in Low Power Mode.
 - **characters** - Clippy plus five more in the box (Merlin, Genie, Bonzi, Links, Rover), and any custom character dropped into the `Agents` folder (a subfolder with `agent.json` + `map.png`); switch in Settings, shuffle from the Dock menu, or randomize on every launch. Multi-layer sprites are composited, so full Microsoft Agent characters render correctly.
-- **per-character facts** - each character shows its own facts. Clippy ships with ~600 lines in his own voice; a custom character shows facts only if you add its own `tips.json`, otherwise nothing pops up.
+- **per-character facts** - each character shows its own facts. Clippy ships with ~500 lines in his own voice; a custom character shows facts only if you add its own `tips.json`, otherwise nothing pops up.
 - **content sources** - besides local facts, Ollama / Claude / RSS / facts-API providers with an automatic fallback to local.
 - **sound** - the original animation voices (off by default).
-- **autostart** - at login (LaunchAgent).
+- **autostart** - at login (macOS Login Items via `SMAppService`).
 - **about** - a panel with the app version.
 
 ## Installation
@@ -61,7 +61,7 @@ Requires macOS 13+ and the Swift toolchain / Xcode.
 
 Pick the source in Settings. Provider fields live there too (the Claude key is stored in the Keychain, not in plain text).
 
-- **Local tips** - built in: ~600 Clippy lines, toggle categories in Settings.
+- **Local tips** - built in: ~500 Clippy lines, toggle categories in Settings.
 - **Ollama** - a running `ollama serve` and a model; set the address and model in Settings (or via `CLIPPY_OLLAMA_URL` / `CLIPPY_OLLAMA_MODEL`).
 - **Claude** - paste the API key in Settings (or `ANTHROPIC_API_KEY`).
 - **RSS** - the feed URL in Settings (or `CLIPPY_RSS_URL`).
