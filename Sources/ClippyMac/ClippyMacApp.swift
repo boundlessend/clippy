@@ -381,7 +381,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         let anchor = currentDockAnchor()
         Task { @MainActor in
             guard let tip = await self.fetchTip() else {
-                NSLog("clippy: фактов для персонажа нет - облачко не показываем")
+                let s = AppSettings.shared
+                // единственный «тихий» случай, который стоит объяснить: Clippy + локальный источник
+                // при снятых всех категориях. остальное (у персонажа нет tips.json) - молча, как раньше
+                if s.providerKind == .local, s.enabledCategories.isEmpty, s.activeAgent == builtInAgentName {
+                    self.presentBubble("Все категории фактов выключены - включите в настройках", anchor: anchor)
+                } else {
+                    NSLog("clippy: фактов для персонажа нет - облачко не показываем")
+                }
                 return
             }
             self.presentBubble(tip, anchor: anchor)

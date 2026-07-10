@@ -45,7 +45,9 @@ struct AgentTipsProvider: TipProvider {
             // знакомые ключи -> фильтруем по включённым категориям;
             // чужие ключи (свой персонаж со своими категориями) -> показываем все
             if byCategory.keys.contains(where: AppSettings.allCategoryKeys.contains) {
-                list = byCategory.filter { enabled.contains($0.key) }.flatMap(\.value)
+                let filtered = byCategory.filter { enabled.contains($0.key) }.flatMap(\.value)
+                // фильтр обнулил список (тумблеры категорий - про Clippy) -> не молчим, показываем все
+                list = filtered.isEmpty ? byCategory.flatMap(\.value) : filtered
             } else {
                 list = byCategory.flatMap(\.value)
             }

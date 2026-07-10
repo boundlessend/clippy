@@ -10,28 +10,32 @@ struct HTTPError: Error { let status: Int }
 // таймаут внешних запросов
 let networkTimeout: TimeInterval = 15
 
+// модель Claude для советов: самая дешёвая/быстрая Haiku; при обновлении сверить со скиллом claude-api
+let defaultClaudeModel = "claude-haiku-4-5-20251001"
+
 // эфемерная сессия для провайдеров: без дискового кэша запросов/ответов
 let tipSession = URLSession(configuration: .ephemeral)
 
 // проверка HTTP-ответа. тело ответа не логируем: оно контролируется эндпоинтом и
 // может утечь в системный лог, поэтому храним только статус
-func ensureOK(_ resp: URLResponse, _ data: Data) throws {
+func ensureOK(_ resp: URLResponse) throws {
     guard let http = resp as? HTTPURLResponse else { throw HTTPError(status: -1) }
     guard (200..<300).contains(http.statusCode) else { throw HTTPError(status: http.statusCode) }
 }
 
-// retries с warning-логами, затем raise последней ошибки (правило проекта).
-// клиентские 4xx (напр. 401 при неверном ключе) не ретраим - бесполезно
+// retries с warning-логами и нарастающей паузой, затем raise последней ошибки (правило проекта).
+// клиентские 4xx (напр. 401 при неверном ключе) не ретраим - бесполезно; 429 (rate limit) - ретраим
 func withRetries<T>(_ attempts: Int = 3, _ op: () async throws -> T) async throws -> T {
     var last: Error?
     for i in 1...attempts {
         do { return try await op() }
-        catch let e as HTTPError where (400..<500).contains(e.status) {
+        catch let e as HTTPError where (400..<500).contains(e.status) && e.status != 429 {
             throw e
         }
         catch {
             last = error
             NSLog("clippy: attempt \(i)/\(attempts) failed: \(error)")
+            if i < attempts { try? await Task.sleep(nanoseconds: UInt64(i) * 500_000_000) }  // 0.5с, 1.0с
         }
     }
     throw last!
@@ -52,7 +56,7 @@ struct OllamaProvider: TipProvider {
             let body: [String: Any] = ["model": model, "prompt": tipPrompt, "stream": false]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, resp) = try await tipSession.data(for: req)
-            try ensureOK(resp, data)
+            try ensureOK(resp)
             let decoded = try JSONDecoder().decode(OllamaResponse.self, from: data)
             return decoded.response.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -67,7 +71,7 @@ struct ClaudeProvider: TipProvider {
     let apiKey: String
     let model: String
 
-    init(apiKey: String, model: String = "claude-haiku-4-5-20251001") {
+    init(apiKey: String, model: String = defaultClaudeModel) {
         self.apiKey = apiKey
         self.model = model
     }
@@ -87,7 +91,7 @@ struct ClaudeProvider: TipProvider {
             ]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, resp) = try await tipSession.data(for: req)
-            try ensureOK(resp, data)
+            try ensureOK(resp)
             let decoded = try JSONDecoder().decode(ClaudeResponse.self, from: data)
             return decoded.content.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
@@ -105,7 +109,7 @@ struct FactsAPIProvider: TipProvider {
             var req = URLRequest(url: url)
             req.timeoutInterval = networkTimeout
             let (data, resp) = try await tipSession.data(for: req)
-            try ensureOK(resp, data)
+            try ensureOK(resp)
             return try JSONDecoder().decode(UselessFact.self, from: data).text
         }
     }
@@ -122,7 +126,7 @@ struct RSSProvider: TipProvider {
             var req = URLRequest(url: feedURL)
             req.timeoutInterval = networkTimeout
             let (data, resp) = try await tipSession.data(for: req)
-            try ensureOK(resp, data)
+            try ensureOK(resp)
             guard let title = RSSFirstTitle().parse(data) else {
                 throw AssetError.missing("RSS <item><title>")
             }
