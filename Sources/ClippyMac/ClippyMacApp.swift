@@ -501,7 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         switch kind {
         case .local:
             let ref = activeAgentRef()
-            if let dir = ref.directory { return try AgentTipsProvider(directory: dir) }
+            if let dir = ref.directory { return try AgentTipsProvider(directory: dir, enabled: s.enabledCategories) }
             return try LocalJSONProvider(enabled: s.enabledCategories)
         case .ollama:
             let urlStr = s.ollamaURL.isEmpty

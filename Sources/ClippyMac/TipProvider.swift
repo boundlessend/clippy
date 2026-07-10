@@ -27,17 +27,31 @@ struct LocalJSONProvider: TipProvider {
     }
 }
 
-// факты конкретного персонажа из <папка>/tips.json (плоский массив строк).
-// нет файла или он пуст -> throws: у персонажа своих фактов нет, облачко не показываем
+// факты конкретного персонажа из <папка>/tips.json.
+// два формата: словарь по категориям (фильтруется включёнными категориями, как у Clippy)
+// или плоский массив строк (для своих персонажей - категории необязательны).
+// нет файла или пусто -> throws: своих фактов нет, облачко не показываем
 struct AgentTipsProvider: TipProvider {
     private let tips: [String]
 
-    init(directory: URL) throws {
+    init(directory: URL, enabled: Set<String>) throws {
         let url = directory.appendingPathComponent("tips.json")
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw AssetError.missing("tips.json персонажа")
         }
-        let list = try JSONDecoder().decode([String].self, from: Data(contentsOf: url))
+        let data = try Data(contentsOf: url)
+        let list: [String]
+        if let byCategory = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            // знакомые ключи -> фильтруем по включённым категориям;
+            // чужие ключи (свой персонаж со своими категориями) -> показываем все
+            if byCategory.keys.contains(where: AppSettings.allCategoryKeys.contains) {
+                list = byCategory.filter { enabled.contains($0.key) }.flatMap(\.value)
+            } else {
+                list = byCategory.flatMap(\.value)
+            }
+        } else {
+            list = try JSONDecoder().decode([String].self, from: data)
+        }
         guard !list.isEmpty else { throw AssetError.missing("tips.json персонажа (пусто)") }
         self.tips = list
     }
