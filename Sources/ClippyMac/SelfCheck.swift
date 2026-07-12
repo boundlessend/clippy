@@ -116,6 +116,17 @@ func runSelfCheckIfRequested() {
                 "missing sound \(key).mp3")
         }
 
+        // генерация пула: парсинг ответа модели, сборка промпта, обрезка RSS, имя файла пула
+        let parsed = parseFactLines("1. Первый факт\n- Второй факт\n\n  \"Третий факт\"  \n")
+        precondition(parsed == ["Первый факт", "Второй факт", "Третий факт"], "parseFactLines: \(parsed)")
+        precondition(assembleStylePrompt(persona: "Клиппи", constraints: "", maxLen: 100).contains("Клиппи"),
+                     "style prompt must include persona")
+        precondition(batchFactPrompt(style: "S", count: 5).contains("5"), "batch prompt must include count")
+        precondition(truncateTitle("абв где ёжз", max: 6) == "абв…", "truncateTitle word boundary")
+        precondition(truncateTitle("коротко", max: 100) == "коротко", "short title unchanged")
+        precondition(orderedUnique(["a", "b", "a", "c"]) == ["a", "b", "c"], "orderedUnique keeps first order")
+        precondition(PoolStore.sanitize("../evil/Клип:пи") == "___evil_Клип_пи", "pool name must strip path chars")
+
         print("selftest ok: \(agent.animations.count) animations, "
               + "\(cropped) frames cropped, sheet \(sheet.width)x\(sheet.height), "
               + "\(tips.count) tips, \(soundKeys.count) sounds, "

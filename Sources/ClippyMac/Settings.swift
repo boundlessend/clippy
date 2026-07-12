@@ -23,6 +23,25 @@ struct TipCategory: Identifiable {
     var id: String { key }
 }
 
+// настройки генерации через LLM, свои для каждого провайдера (Ollama, Claude).
+// поля persona/constraints/maxLen собирают prompt; prompt редактируется и уходит модели
+struct LLMConfig: Codable, Equatable {
+    var persona: String
+    var constraints: String
+    var maxLen: Int
+    var prompt: String       // итоговый промпт-стиль (что уходит модели), редактируемый
+    var usePool: Bool        // true: брать из заранее сгенерированного пула; false: живой запрос на клик
+
+    static func makeDefault() -> LLMConfig {
+        let persona = "остроумный помощник-скрепыш Clippy"
+        let constraints = "Темы: техника, интернет, наука, история, полезные советы."
+        let maxLen = 200
+        return LLMConfig(persona: persona, constraints: constraints, maxLen: maxLen,
+                         prompt: assembleStylePrompt(persona: persona, constraints: constraints, maxLen: maxLen),
+                         usePool: false)
+    }
+}
+
 final class AppSettings: ObservableObject {
     nonisolated(unsafe) static let shared = AppSettings()
 
@@ -68,6 +87,10 @@ final class AppSettings: ObservableObject {
     }
     private var claudeKeyWrite: DispatchWorkItem?
 
+    // настройки генерации LLM (промпт-стиль + режим пула), свои для Ollama и Claude
+    @Published var ollamaConfig: LLMConfig { didSet { saveConfig(ollamaConfig, K.ollamaConfig) } }
+    @Published var claudeConfig: LLMConfig { didSet { saveConfig(claudeConfig, K.claudeConfig) } }
+
     // включённые категории локальных фактов
     @Published var enabledCategories: Set<String> {
         didSet { d.set(Array(enabledCategories), forKey: K.categories) }
@@ -89,6 +112,8 @@ final class AppSettings: ObservableObject {
         static let ollamaModel = "ollamaModel"
         static let rssURL = "rssURL"
         static let claudeKey = "anthropic-api-key"      // account в Keychain
+        static let ollamaConfig = "ollamaConfig"        // JSON LLMConfig
+        static let claudeConfig = "claudeConfig"        // JSON LLMConfig
         static let categories = "enabledCategories"
         static let activeAgent = "activeAgent"
     }
@@ -113,8 +138,20 @@ final class AppSettings: ObservableObject {
         ollamaModel = d.string(forKey: K.ollamaModel) ?? Self.defaultOllamaModel
         rssURL = d.string(forKey: K.rssURL) ?? ""
         claudeKey = Keychain.get(account: K.claudeKey) ?? ""
+        ollamaConfig = Self.loadConfig(d, K.ollamaConfig)
+        claudeConfig = Self.loadConfig(d, K.claudeConfig)
         enabledCategories = d.stringArray(forKey: K.categories).map(Set.init) ?? Self.allCategoryKeys
         activeAgent = d.string(forKey: K.activeAgent) ?? builtInAgentName
+    }
+
+    // LLMConfig <-> UserDefaults как JSON; нет/битый -> дефолт
+    private func saveConfig(_ c: LLMConfig, _ key: String) {
+        if let data = try? JSONEncoder().encode(c) { d.set(data, forKey: key) }
+    }
+    private static func loadConfig(_ d: UserDefaults, _ key: String) -> LLMConfig {
+        guard let data = d.data(forKey: key),
+              let c = try? JSONDecoder().decode(LLMConfig.self, from: data) else { return .makeDefault() }
+        return c
     }
 
     // немедленно записать отложенный ключ Claude (напр. при выходе), чтобы не потерять ввод

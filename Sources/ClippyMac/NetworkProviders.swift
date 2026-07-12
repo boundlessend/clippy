@@ -1,14 +1,77 @@
 import Foundation
 
 // провайдеры контента из внешних сервисов. общий retry-хелпер и проверка ответа.
-// промпт для LLM-провайдеров
+// промпт для LLM-провайдеров по умолчанию (когда пользователь не задал свой стиль)
 let tipPrompt = "Дай один короткий интересный факт или полезный совет на русском языке. "
     + "Одно-два предложения, без вступления и без кавычек."
+
+// максимальная длина заголовка RSS в облачке (длиннее - обрезаем по слову)
+let rssMaxTitle = 140
 
 struct HTTPError: Error { let status: Int }
 
 // таймаут внешних запросов
 let networkTimeout: TimeInterval = 15
+
+// MARK: - генерация пачкой (наполнение пула) и сборка промпта
+
+// LLM-провайдер: умеет выполнить произвольный промпт (используется и для одного факта, и для пачки)
+protocol LLMProvider: Sendable {
+    func complete(_ prompt: String) async throws -> String
+}
+
+// собрать промпт-стиль из полей: персона (характер), ограничения/темы, максимальная длина.
+// описывает стиль фактов, без указания количества - его добавляют single/batch
+func assembleStylePrompt(persona: String, constraints: String, maxLen: Int) -> String {
+    var parts: [String] = []
+    let p = persona.trimmingCharacters(in: .whitespacesAndNewlines)
+    let c = constraints.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !p.isEmpty { parts.append("Пиши от лица: \(p).") }
+    parts.append("Факты короткие и интересные, на русском.")
+    if !c.isEmpty { parts.append(c) }
+    parts.append("Каждый факт - одно-два предложения, максимум \(maxLen) символов, без нумерации и кавычек.")
+    return parts.joined(separator: " ")
+}
+
+// живой режим: попросить у модели один факт в заданном стиле
+func singleFactPrompt(style: String) -> String {
+    style + " Дай один такой факт."
+}
+
+// пул: попросить count фактов одним запросом, каждый с новой строки
+func batchFactPrompt(style: String, count: Int) -> String {
+    style + " Дай \(count) разных таких фактов, каждый с новой строки."
+}
+
+// распарсить многострочный ответ модели в отдельные факты:
+// снять ведущую нумерацию/маркеры и кавычки, обрезать пробелы, выкинуть пустые
+func parseFactLines(_ raw: String) -> [String] {
+    raw.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+        var s = String(line).trimmingCharacters(in: .whitespaces)
+        s = s.replacingOccurrences(of: #"^\s*(\d+[.):]\s*|[-*•]\s*)"#, with: "", options: .regularExpression)
+        s = s.trimmingCharacters(in: CharacterSet(charactersIn: "\"'«»").union(.whitespaces))
+        return s.isEmpty ? nil : s
+    }
+}
+
+// сгенерировать пачку фактов одним запросом к модели (для наполнения пула)
+func generateFactBatch(_ provider: LLMProvider, style: String, count: Int) async throws -> [String] {
+    let raw = try await provider.complete(batchFactPrompt(style: style, count: count))
+    let facts = parseFactLines(raw)
+    guard !facts.isEmpty else { throw AssetError.missing("модель не вернула фактов") }
+    return facts
+}
+
+// обрезать длинный заголовок по границе слова, добавить многоточие
+func truncateTitle(_ s: String, max: Int) -> String {
+    let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard t.count > max else { return t }
+    let clipped = t.prefix(max)
+    if let sp = clipped.lastIndex(of: " ") {
+        return clipped[..<sp].trimmingCharacters(in: .whitespaces) + "…"
+    }
+    return clipped + "…"
+}
 
 // модель Claude для советов: самая дешёвая/быстрая Haiku; при обновлении сверить со скиллом claude-api
 let defaultClaudeModel = "claude-haiku-4-5-20251001"
@@ -43,17 +106,20 @@ func withRetries<T>(_ attempts: Int = 3, _ op: () async throws -> T) async throw
 
 // MARK: - Ollama (локальный LLM)
 
-struct OllamaProvider: TipProvider {
+struct OllamaProvider: TipProvider, LLMProvider {
     let endpoint: URL
     let model: String
+    var prompt: String = tipPrompt          // промпт для одного факта (nextTip); complete берёт свой
 
-    func nextTip() async throws -> String {
+    func nextTip() async throws -> String { try await complete(prompt) }
+
+    func complete(_ prompt: String) async throws -> String {
         try await withRetries {
             var req = URLRequest(url: endpoint)
             req.timeoutInterval = networkTimeout
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let body: [String: Any] = ["model": model, "prompt": tipPrompt, "stream": false]
+            let body: [String: Any] = ["model": model, "prompt": prompt, "stream": false]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp)
@@ -67,16 +133,23 @@ private struct OllamaResponse: Decodable { let response: String }
 // MARK: - Claude (Anthropic Messages API)
 // при доработке сверить модель/эндпоинт со скиллом claude-api
 
-struct ClaudeProvider: TipProvider {
+struct ClaudeProvider: TipProvider, LLMProvider {
     let apiKey: String
     let model: String
+    let maxTokens: Int
+    var prompt: String                       // промпт для одного факта (nextTip); complete берёт свой
 
-    init(apiKey: String, model: String = defaultClaudeModel) {
+    init(apiKey: String, model: String = defaultClaudeModel, maxTokens: Int = 150,
+         prompt: String = tipPrompt) {
         self.apiKey = apiKey
         self.model = model
+        self.maxTokens = maxTokens
+        self.prompt = prompt
     }
 
-    func nextTip() async throws -> String {
+    func nextTip() async throws -> String { try await complete(prompt) }
+
+    func complete(_ prompt: String) async throws -> String {
         try await withRetries {
             var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
             req.timeoutInterval = networkTimeout
@@ -86,8 +159,8 @@ struct ClaudeProvider: TipProvider {
             req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             let body: [String: Any] = [
                 "model": model,
-                "max_tokens": 150,
-                "messages": [["role": "user", "content": tipPrompt]],
+                "max_tokens": maxTokens,
+                "messages": [["role": "user", "content": prompt]],
             ]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, resp) = try await tipSession.data(for: req)
@@ -130,7 +203,7 @@ struct RSSProvider: TipProvider {
             guard let title = RSSFirstTitle().parse(data) else {
                 throw AssetError.missing("RSS <item><title>")
             }
-            return title
+            return truncateTitle(title, max: rssMaxTitle)
         }
     }
 }
