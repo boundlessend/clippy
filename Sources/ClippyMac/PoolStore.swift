@@ -3,13 +3,20 @@ import Foundation
 // пул заранее сгенерированных фактов на персонажа: JSON-массив строк в Application Support.
 // заполняется пачками через Ollama/Claude, читается мгновенно по клику (без прогрева и оплаты)
 enum PoolStore {
-    // ~/Library/Application Support/ClippyMac/pools/<персонаж>.json (папку создаём при обращении)
-    static func url(character: String) throws -> URL {
+    static let maxPool = 500                 // потолок пула: держим новейшие N, старое вытесняется
+
+    // ~/Library/Application Support/ClippyMac/pools (папку создаём при обращении)
+    static func poolsDir() throws -> URL {
         let base = try FileManager.default.url(for: .applicationSupportDirectory,
                                                in: .userDomainMask, appropriateFor: nil, create: true)
         let dir = base.appendingPathComponent("ClippyMac/pools", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent(sanitize(character) + ".json")
+        return dir
+    }
+
+    // ~/Library/Application Support/ClippyMac/pools/<персонаж>.json
+    static func url(character: String) throws -> URL {
+        try poolsDir().appendingPathComponent(sanitize(character) + ".json")
     }
 
     static func load(character: String) -> [String] {
@@ -19,10 +26,11 @@ enum PoolStore {
         return list
     }
 
-    // дописать пачку к пулу, убрав дубли и сохранив порядок
+    // дописать пачку к пулу, убрав дубли и сохранив порядок; при переполнении держим новейшие
     static func append(character: String, facts: [String]) throws {
         let merged = orderedUnique(load(character: character) + facts)
-        try JSONEncoder().encode(merged).write(to: url(character: character))
+        let capped = merged.count > maxPool ? Array(merged.suffix(maxPool)) : merged
+        try JSONEncoder().encode(capped).write(to: url(character: character))
     }
 
     static func clear(character: String) throws {
@@ -30,6 +38,18 @@ enum PoolStore {
     }
 
     static func count(character: String) -> Int { load(character: character).count }
+
+    // удалить пулы персонажей, которых больше нет в библиотеке (осиротевшие файлы)
+    static func prune(keeping names: Set<String>) {
+        guard let dir = try? poolsDir(),
+              let files = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil) else { return }
+        let keep = Set(names.map(sanitize))
+        for f in files where f.pathExtension == "json"
+            && !keep.contains(f.deletingPathExtension().lastPathComponent) {
+            try? FileManager.default.removeItem(at: f)
+        }
+    }
 
     // безопасное имя файла: убираем разделители пути и управляющие, юникод-буквы оставляем
     static func sanitize(_ name: String) -> String {
