@@ -42,7 +42,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <dict>
     <key>NSAllowsLocalNetworking</key><true/>
   </dict>
-  <key>NSHumanReadableCopyright</key><string>исходный код - BSD-3-Clause; ассеты Clippy - Microsoft</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 Boundlessend</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
