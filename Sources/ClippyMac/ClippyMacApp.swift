@@ -58,6 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         }
         NSApp.mainMenu = makeMainMenu()           // меню приложения (Cmd+,, Cmd+Q)
         NSApp.setActivationPolicy(.regular)       // всегда в доке
+        // «О программе» и Cmd-Tab берут applicationIconImage через кэш иконок macOS,
+        // который держит старую иконку после замены .app - грузим свежую .icns из бандла явно
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
         setupDock()                               // анимированный персонаж в доке
         setupPowerNotifications()                 // пауза анимации при блокировке/сне экрана
         migrateLegacyLoginItemIfNeeded()          // перенос автозапуска со старого LaunchAgent на SMAppService
