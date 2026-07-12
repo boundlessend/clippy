@@ -143,11 +143,12 @@ SPM executable (`Package.swift`, swift-tools 5.9, macOS 13+), без xcodeproj.
 ```
 clippy-mac/
   Package.swift                    # SPM executable, resources: .process("Resources")
-  PLAN.md  README.md  LICENSE       # README только на русском (i18n - в бэклоге)
+  PLAN.md  README.md  RELEASING.md  LICENSE   # README только на русском (i18n - в бэклоге)
   design/settings-onboarding-mock.html  # одобренный HTML-прототип нового UI (настройки + онбординг)
   scripts/build-dmg.sh             # release -> .app (Info.plist, иконка, типы документов) -> ad-hoc -> .dmg
   scripts/import-clippyjs.py       # персонаж ClippyJS -> папка Agents (map.png+agent.js+звуки)
   .github/workflows/ci.yml         # swift build + CLIPPY_SELFTEST=1 + release
+  .github/workflows/release.yml    # тег v* -> сборка .dmg -> GitHub Release (версия из тега)
   assets/AppIcon.png .icns         # иконка приложения
   Sources/ClippyMac/
     main.swift                     # точка входа: self-check, затем NSApplication+AppDelegate
@@ -261,6 +262,10 @@ clippy-mac/
 
 - проект подготовлен к публикации (CI, DMG, лицензия); публикация - по решению
   владельца, remote пока не задан
+- **релизы:** версия из git-тега (единый источник). тег `vX.Y.Z` ->
+  `.github/workflows/release.yml` собирает `.dmg` на macOS-раннере и публикует GitHub
+  Release с файлом + инструкцией по Gatekeeper. без Sparkle/автообновлений
+  (обновление вручную новым релизом). детали - в `RELEASING.md`. первый релиз - `v1.0.0`
 - коммитим **волнами**: одна логическая порция = один коммит (обычно = один этап
   или подзадача с проверяемым результатом)
 - сообщения коммитов - **Conventional Commits**: `type(scope): описание`, на английском,
@@ -507,7 +512,8 @@ Homebrew-каст). по функционалу мы уже шире (факты
 - облачко показывается дольше для длинного текста; кнопка «Отмена» на генерации;
   пустой пул подсказывает в облачке, а не молчит; осиротевшие пулы чистятся при
   `reloadAgents`; ошибка генерации - sheet на окне настроек
-- лицензия проекта переведена на **BSD-3-Clause** (было MIT); версия `1.1.0`
+- лицензия проекта переведена на **BSD-3-Clause** (было MIT); версия теперь из
+  git-тега (первый публичный релиз - `v1.0.0`)
 - `swift run` (голый бинарь без Info.plist): ATS режет Ollama по http; https-источники
   (Claude/RSS/Википедия) работают, для Ollama нужен собранный `.app`
 
