@@ -173,21 +173,34 @@ struct ClaudeProvider: TipProvider, LLMProvider {
 private struct ClaudeResponse: Decodable { let content: [Block] }
 private struct Block: Decodable { let text: String }
 
-// MARK: - Факты из интернета (публичный JSON API без ключа)
+// MARK: - «В этот день» из русской Википедии (события на сегодняшнюю дату, без ключа)
 
-struct FactsAPIProvider: TipProvider {
+let onThisDayMaxLen = 220
+
+struct OnThisDayProvider: TipProvider {
     func nextTip() async throws -> String {
         try await withRetries {
-            let url = URL(string: "https://uselessfacts.jsph.pl/api/v2/facts/random?language=en")!
+            let cal = Calendar(identifier: .gregorian)
+            let now = Date()
+            let mmdd = String(format: "%02d/%02d",
+                              cal.component(.month, from: now), cal.component(.day, from: now))
+            let url = URL(string: "https://ru.wikipedia.org/api/rest_v1/feed/onthisday/events/\(mmdd)")!
             var req = URLRequest(url: url)
             req.timeoutInterval = networkTimeout
+            req.setValue("ClippyMac (macOS dock assistant)", forHTTPHeaderField: "User-Agent")
             let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp)
-            return try JSONDecoder().decode(UselessFact.self, from: data).text
+            let decoded = try JSONDecoder().decode(OnThisDayResponse.self, from: data)
+            guard let ev = decoded.events.randomElement() else {
+                throw AssetError.missing("нет событий на сегодня")
+            }
+            let base = ev.year.map { "\($0) - \(ev.text)" } ?? ev.text
+            return truncateTitle(base, max: onThisDayMaxLen)
         }
     }
 }
-private struct UselessFact: Decodable { let text: String }
+private struct OnThisDayResponse: Decodable { let events: [OnThisDayEvent] }
+private struct OnThisDayEvent: Decodable { let year: Int?; let text: String }
 
 // MARK: - RSS-лента (заголовок первого элемента)
 

@@ -10,7 +10,7 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         case .local: "Локальные советы"
         case .ollama: "Ollama (локально)"
         case .claude: "Claude API"
-        case .facts: "Факты из интернета"
+        case .facts: "«В этот день» (Википедия)"
         case .rss: "RSS-лента"
         }
     }

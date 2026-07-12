@@ -487,7 +487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             return ClaudeProvider(apiKey: key, maxTokens: max(150, s.claudeConfig.maxLen),
                                   prompt: singleFactPrompt(style: s.claudeConfig.prompt))
         case .facts:
-            return FactsAPIProvider()
+            return OnThisDayProvider()
         case .rss:
             let feed = s.rssURL.isEmpty ? (env["CLIPPY_RSS_URL"] ?? "") : s.rssURL
             guard !feed.isEmpty, let url = URL(string: feed) else {
