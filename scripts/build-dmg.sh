@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="1.0.0"                     # версия приложения (semver), правится здесь
+VERSION="1.1.0"                     # версия приложения (semver), правится здесь
 
 APP="build/ClippyMac.app"
 DMG="build/ClippyMac.dmg"
@@ -42,7 +42,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <dict>
     <key>NSAllowsLocalNetworking</key><true/>
   </dict>
-  <key>NSHumanReadableCopyright</key><string>исходный код - MIT; ассеты Clippy - Microsoft</string>
+  <key>NSHumanReadableCopyright</key><string>исходный код - BSD-3-Clause; ассеты Clippy - Microsoft</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
