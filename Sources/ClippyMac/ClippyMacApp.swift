@@ -33,6 +33,8 @@ let settingsHeight: CGFloat = 640
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, ObservableObject {
     @Published private(set) var availableAgents: [AgentRef] = []   // встроенный + из папки
     @Published private(set) var agentAvatars: [String: NSImage] = [:]   // имя -> аватар (кадр RestPose)
+    @Published var isGeneratingPool = false                        // идёт генерация пачки фактов
+    @Published private(set) var poolCount = 0                      // размер пула активного персонажа
     private var dockView: NSImageView?                // куда рисует аниматор (иконка в доке)
     private var animator: SpriteAnimator?
     private var bubblePanel: NSPanel?                 // облачко с фактом у дока
@@ -219,8 +221,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // открыть папку персонажей в Finder
     func showAgentsFolder() { NSWorkspace.shared.open(agentsFolder()) }
 
-    // смена персонажа в настройках -> перестроить анимацию в доке
-    func applyAgentChange() { rebuildDockAnimator() }
+    // смена персонажа в настройках -> перестроить анимацию в доке и обновить счётчик пула
+    func applyAgentChange() {
+        rebuildDockAnimator()
+        refreshPoolCount()
+    }
 
     private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
@@ -275,6 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // единое окно настроек: из дока и из меню приложения
     func showSettings() {
+        refreshPoolCount()                         // счётчик пула актуален к открытию
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsRootView(delegate: self))
             hosting.sizingOptions = []                 // не навязывать окну размер контента
@@ -466,16 +472,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             if let dir = ref.directory { return try AgentTipsProvider(directory: dir, enabled: s.enabledCategories) }
             return try LocalJSONProvider(enabled: s.enabledCategories)
         case .ollama:
+            if s.ollamaConfig.usePool { return try PoolProvider(character: s.activeAgent) }
             let urlStr = s.ollamaURL.isEmpty
                 ? (env["CLIPPY_OLLAMA_URL"] ?? AppSettings.defaultOllamaURL) : s.ollamaURL
             guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
             let model = s.ollamaModel.isEmpty
                 ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
-            return OllamaProvider(endpoint: url, model: model)
+            return OllamaProvider(endpoint: url, model: model,
+                                  prompt: singleFactPrompt(style: s.ollamaConfig.prompt))
         case .claude:
+            if s.claudeConfig.usePool { return try PoolProvider(character: s.activeAgent) }
             let key = s.claudeKey.isEmpty ? (env["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
             guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
-            return ClaudeProvider(apiKey: key)
+            return ClaudeProvider(apiKey: key, maxTokens: max(150, s.claudeConfig.maxLen),
+                                  prompt: singleFactPrompt(style: s.claudeConfig.prompt))
         case .facts:
             return FactsAPIProvider()
         case .rss:
@@ -485,5 +495,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             }
             return RSSProvider(feedURL: url)
         }
+    }
+
+    // MARK: - генерация пула
+
+    // построить LLM-провайдер выбранного источника для генерации пачкой
+    private func makeLLMProvider(_ kind: ProviderKind, maxTokens: Int) throws -> LLMProvider {
+        let s = AppSettings.shared
+        let env = ProcessInfo.processInfo.environment
+        switch kind {
+        case .ollama:
+            let urlStr = s.ollamaURL.isEmpty
+                ? (env["CLIPPY_OLLAMA_URL"] ?? AppSettings.defaultOllamaURL) : s.ollamaURL
+            guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
+            let model = s.ollamaModel.isEmpty
+                ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
+            return OllamaProvider(endpoint: url, model: model)
+        case .claude:
+            let key = s.claudeKey.isEmpty ? (env["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
+            guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
+            return ClaudeProvider(apiKey: key, maxTokens: maxTokens)
+        default:
+            throw AssetError.missing("генерация только для Ollama/Claude")
+        }
+    }
+
+    // сгенерировать пачку фактов текущим LLM-источником и дописать в пул активного персонажа
+    func generatePool(count: Int) {
+        let s = AppSettings.shared
+        let kind = s.providerKind
+        guard kind == .ollama || kind == .claude, !isGeneratingPool else { return }
+        let character = s.activeAgent
+        let cfg = kind == .ollama ? s.ollamaConfig : s.claudeConfig
+        let maxTokens = min(8000, count * max(80, cfg.maxLen))
+        isGeneratingPool = true
+        Task { @MainActor in
+            defer { isGeneratingPool = false }
+            do {
+                let provider = try makeLLMProvider(kind, maxTokens: maxTokens)
+                let facts = try await generateFactBatch(provider, style: cfg.prompt, count: count)
+                try PoolStore.append(character: character, facts: facts)
+                refreshPoolCount()
+            } catch {
+                NSLog("clippy: генерация пула не удалась: \(error)")
+                let a = NSAlert()
+                a.messageText = "Не удалось сгенерировать факты"
+                a.informativeText = "\(error)"
+                a.runModal()
+            }
+        }
+    }
+
+    // очистить пул активного персонажа (сгенерировать заново с нуля)
+    func clearPool() {
+        try? PoolStore.clear(character: AppSettings.shared.activeAgent)
+        refreshPoolCount()
+    }
+
+    // пересчитать размер пула активного персонажа (для счётчика в настройках)
+    func refreshPoolCount() {
+        poolCount = PoolStore.count(character: AppSettings.shared.activeAgent)
     }
 }

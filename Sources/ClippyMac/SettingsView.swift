@@ -191,9 +191,13 @@ struct SettingsRootView: View {
             rowSep()
             labeledField("Адрес Ollama", text: $settings.ollamaURL, secure: false)
             labeledField("Модель Ollama", text: $settings.ollamaModel, secure: false)
+            rowSep()
+            llmSection(config: $settings.ollamaConfig)
         case .claude:
             rowSep()
             labeledField("Ключ Claude API", text: $settings.claudeKey, secure: true)
+            rowSep()
+            llmSection(config: $settings.claudeConfig)
         case .rss:
             rowSep()
             labeledField("Адрес RSS-ленты", text: $settings.rssURL, secure: false)
@@ -293,6 +297,56 @@ struct SettingsRootView: View {
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(P.lineStrong, lineWidth: 1))
         }
         .padding(.vertical, 10)
+    }
+
+    // многострочное поле промпта (растёт по содержимому)
+    private func promptField(_ text: Binding<String>) -> some View {
+        TextField("", text: text, axis: .vertical)
+            .textFieldStyle(.plain).font(.system(size: 12.5)).foregroundStyle(P.ink).lineLimit(3...8)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(P.card)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(P.lineStrong, lineWidth: 1))
+            .padding(.bottom, 10)
+    }
+
+    // блок LLM-провайдера: режим пула, поля стиля, итоговый промпт, генерация пачкой
+    @ViewBuilder private func llmSection(config: Binding<LLMConfig>) -> some View {
+        InlineRow(title: "Брать из готового пула",
+                  subtitle: config.wrappedValue.usePool
+                    ? "По клику - мгновенно из пула, без прогрева и оплаты"
+                    : "Живой запрос к модели на каждый клик") {
+            Toggle("", isOn: config.usePool).labelsHidden().toggleStyle(.switch).tint(P.accent)
+        }
+        rowSep()
+        VStack(spacing: 0) {
+            labeledField("Персона (характер)", text: config.persona, secure: false)
+            labeledField("Ограничения / темы", text: config.constraints, secure: false)
+            InlineRow(title: "Макс. длина факта", subtitle: "\(config.wrappedValue.maxLen) символов") {
+                Stepper("", value: config.maxLen, in: 60...500, step: 20).labelsHidden()
+            }
+            InlineRow(title: "Промпт", subtitle: "что уходит модели - соберите из полей и поправьте") {
+                ghostButton("Собрать") {
+                    config.wrappedValue.prompt = assembleStylePrompt(
+                        persona: config.wrappedValue.persona,
+                        constraints: config.wrappedValue.constraints,
+                        maxLen: config.wrappedValue.maxLen)
+                }
+            }
+            promptField(config.prompt)
+        }
+        rowSep()
+        InlineRow(title: "Пул для «\(settings.activeAgent)»",
+                  subtitle: "\(delegate.poolCount) фактов готово") {
+            HStack(spacing: 8) {
+                if delegate.isGeneratingPool {
+                    ProgressView().controlSize(.small)
+                } else {
+                    ghostButton("Сгенерировать 30") { delegate.generatePool(count: 30) }
+                    if delegate.poolCount > 0 { ghostButton("Очистить") { delegate.clearPool() } }
+                }
+            }
+        }
     }
 }
 
