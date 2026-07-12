@@ -87,9 +87,11 @@ final class AppSettings: ObservableObject {
     }
     private var claudeKeyWrite: DispatchWorkItem?
 
-    // настройки генерации LLM (промпт-стиль + режим пула), свои для Ollama и Claude
-    @Published var ollamaConfig: LLMConfig { didSet { saveConfig(ollamaConfig, K.ollamaConfig) } }
-    @Published var claudeConfig: LLMConfig { didSet { saveConfig(claudeConfig, K.claudeConfig) } }
+    // настройки генерации LLM (промпт-стиль + режим пула), свои для Ollama и Claude.
+    // пишем в UserDefaults с дебаунсом, а не на каждый символ ввода в полях
+    @Published var ollamaConfig: LLMConfig { didSet { debounceConfigSave(ollamaConfig, K.ollamaConfig) } }
+    @Published var claudeConfig: LLMConfig { didSet { debounceConfigSave(claudeConfig, K.claudeConfig) } }
+    private var configWrites: [String: DispatchWorkItem] = [:]
 
     // включённые категории локальных фактов
     @Published var enabledCategories: Set<String> {
@@ -154,11 +156,29 @@ final class AppSettings: ObservableObject {
         return c
     }
 
-    // немедленно записать отложенный ключ Claude (напр. при выходе), чтобы не потерять ввод
+    // отложенная запись конфига (0.5с), гасим предыдущую отложку для того же ключа
+    private func debounceConfigSave(_ c: LLMConfig, _ key: String) {
+        configWrites[key]?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.saveConfig(c, key)
+            self?.configWrites[key] = nil
+        }
+        configWrites[key] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    // немедленно записать отложенное (напр. при выходе), чтобы не потерять последний ввод
     func flushPendingWrites() {
-        guard claudeKeyWrite != nil else { return }
-        claudeKeyWrite?.cancel()
-        claudeKeyWrite = nil
-        Keychain.set(claudeKey, account: K.claudeKey)
+        if claudeKeyWrite != nil {
+            claudeKeyWrite?.cancel()
+            claudeKeyWrite = nil
+            Keychain.set(claudeKey, account: K.claudeKey)
+        }
+        if !configWrites.isEmpty {
+            configWrites.values.forEach { $0.cancel() }
+            configWrites.removeAll()
+            saveConfig(ollamaConfig, K.ollamaConfig)
+            saveConfig(claudeConfig, K.claudeConfig)
+        }
     }
 }

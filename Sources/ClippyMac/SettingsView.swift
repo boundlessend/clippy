@@ -325,8 +325,8 @@ struct SettingsRootView: View {
             InlineRow(title: "Макс. длина факта", subtitle: "\(config.wrappedValue.maxLen) символов") {
                 Stepper("", value: config.maxLen, in: 60...500, step: 20).labelsHidden()
             }
-            InlineRow(title: "Промпт", subtitle: "что уходит модели - соберите из полей и поправьте") {
-                ghostButton("Собрать") {
+            InlineRow(title: "Промпт", subtitle: "что уходит модели - при желании поправьте") {
+                ghostButton("Пересобрать из полей") {
                     config.wrappedValue.prompt = assembleStylePrompt(
                         persona: config.wrappedValue.persona,
                         constraints: config.wrappedValue.constraints,
@@ -341,6 +341,7 @@ struct SettingsRootView: View {
             HStack(spacing: 8) {
                 if delegate.isGeneratingPool {
                     ProgressView().controlSize(.small)
+                    ghostButton("Отмена") { delegate.cancelGeneration() }
                 } else {
                     ghostButton("Сгенерировать 30") { delegate.generatePool(count: 30) }
                     if delegate.poolCount > 0 { ghostButton("Очистить") { delegate.clearPool() } }

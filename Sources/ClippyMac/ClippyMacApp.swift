@@ -47,8 +47,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 
-    // фиксированная длительность показа баллона
-    private let bubbleSeconds: Double = 8
     private var gestureInFlight = false               // играет одноразовый жест: idle его не прервёт
     private static let gestureMaxSteps = 60           // потолок кадров жеста (зацикленные не зависнут)
 
@@ -216,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             AppSettings.shared.activeAgent = builtInAgentName
             rebuildDockAnimator()          // onChange не сработает на программный сброс
         }
+        PoolStore.prune(keeping: Set(availableAgents.map(\.name)))   // убрать пулы исчезнувших персонажей
     }
 
     // открыть папку персонажей в Finder
@@ -397,10 +396,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         dockAnchor(orientation: dockOrientation()) ?? NSEvent.mouseLocation
     }
 
-    // показать облачко у иконки и завести таймер автоскрытия
+    // показать облачко у иконки и завести таймер автоскрытия (длиннее текст - дольше показ)
     private func presentBubble(_ text: String, anchor: NSPoint) {
         showBubble(text, anchor: anchor)
-        scheduleHide(after: bubbleSeconds)
+        scheduleHide(after: bubbleDuration(for: text))
+    }
+
+    // длительность показа облачка от длины текста, зажатая в разумные рамки
+    private func bubbleDuration(for text: String) -> Double {
+        min(18, max(6, 6 + Double(text.count) * 0.045))
+    }
+
+    // подсказка, если выбран LLM-источник в режиме пула, а пул активного персонажа пуст:
+    // иначе молча показался бы локальный фолбэк, и непонятно, что пул не наполнен
+    private func emptyPoolHint() -> String? {
+        let s = AppSettings.shared
+        let usePool: Bool
+        switch s.providerKind {
+        case .ollama: usePool = s.ollamaConfig.usePool
+        case .claude: usePool = s.claudeConfig.usePool
+        default: return nil
+        }
+        guard usePool, PoolStore.count(character: s.activeAgent) == 0 else { return nil }
+        return "Пул фактов пуст - сгенерируйте их в настройках"
     }
 
     // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
@@ -408,6 +426,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         guard AppSettings.shared.enabled else { return }
         // якорь фиксируем в момент клика (курсор потом уедет), показываем после загрузки факта
         let anchor = currentDockAnchor()
+        if let hint = emptyPoolHint() {                 // пул выбран, но пуст - подсказать, не молчать
+            presentBubble(hint, anchor: anchor)
+            playRandomGesture()
+            return
+        }
         Task { @MainActor in
             guard let tip = await self.fetchTip() else {
                 let s = AppSettings.shared
@@ -510,15 +533,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
             let model = s.ollamaModel.isEmpty
                 ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
-            return OllamaProvider(endpoint: url, model: model)
+            return OllamaProvider(endpoint: url, model: model, timeout: batchTimeout, attempts: 1)
         case .claude:
             let key = s.claudeKey.isEmpty ? (env["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
             guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
-            return ClaudeProvider(apiKey: key, maxTokens: maxTokens)
+            return ClaudeProvider(apiKey: key, maxTokens: maxTokens, timeout: batchTimeout, attempts: 1)
         default:
             throw AssetError.missing("генерация только для Ollama/Claude")
         }
     }
+
+    private var poolTask: Task<Void, Never>?          // текущая генерация пула (для отмены)
 
     // сгенерировать пачку фактов текущим LLM-источником и дописать в пул активного персонажа
     func generatePool(count: Int) {
@@ -529,20 +554,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         let cfg = kind == .ollama ? s.ollamaConfig : s.claudeConfig
         let maxTokens = min(8000, count * max(80, cfg.maxLen))
         isGeneratingPool = true
-        Task { @MainActor in
-            defer { isGeneratingPool = false }
+        poolTask = Task { @MainActor in
+            defer { isGeneratingPool = false; poolTask = nil }
             do {
                 let provider = try makeLLMProvider(kind, maxTokens: maxTokens)
                 let facts = try await generateFactBatch(provider, style: cfg.prompt, count: count)
+                try Task.checkCancellation()
                 try PoolStore.append(character: character, facts: facts)
                 refreshPoolCount()
+            } catch is CancellationError {
+                NSLog("clippy: генерация пула отменена")
             } catch {
                 NSLog("clippy: генерация пула не удалась: \(error)")
-                let a = NSAlert()
-                a.messageText = "Не удалось сгенерировать факты"
-                a.informativeText = "\(error)"
-                a.runModal()
+                presentGenerationError(error)
             }
+        }
+    }
+
+    // отменить текущую генерацию (отменяет и сетевой запрос внутри)
+    func cancelGeneration() { poolTask?.cancel() }
+
+    // ошибку генерации показываем sheet'ом на окне настроек, если оно открыто, иначе модально
+    private func presentGenerationError(_ error: Error) {
+        let a = NSAlert()
+        a.messageText = "Не удалось сгенерировать факты"
+        a.informativeText = "\(error)"
+        if let w = settingsWindow, w.isVisible {
+            a.beginSheetModal(for: w, completionHandler: nil)
+        } else {
+            a.runModal()
         }
     }
 

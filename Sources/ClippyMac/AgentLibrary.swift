@@ -21,7 +21,8 @@ func agentsFolder() -> URL {
 }
 
 // встроенный Clippy + персонажи из бандла (в комплекте) + пользовательские из папки Agents.
-// пользовательская папка с тем же именем перекрывает встроенную в бандл
+// встроенный Clippy (имя "Clippy") всегда из бандла и папкой Agents не переопределяется;
+// для остальных имён пользовательская папка Agents перекрывает одноимённого из бандла
 func discoverAgents() -> [AgentRef] {
     var seen = Set([builtInAgentName])
     var refs = [AgentRef(name: builtInAgentName, directory: nil)]
