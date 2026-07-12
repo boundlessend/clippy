@@ -145,7 +145,7 @@ SPM executable (`Package.swift`, swift-tools 5.9, macOS 13+), без xcodeproj.
 ```
 clippy-mac/
   Package.swift                    # SPM executable, resources: .process("Resources")
-  PLAN.md  README.md  RELEASING.md  LICENSE   # README только на русском (i18n - в бэклоге)
+  PLAN.md  README.md  RELEASING.md  CONTRIBUTING.md  LICENSE   # README только на русском
   design/settings-onboarding-mock.html  # одобренный HTML-прототип нового UI (настройки + онбординг)
   scripts/build-dmg.sh             # release -> .app (Info.plist, иконка, типы документов) -> ad-hoc -> .dmg
   scripts/import-clippyjs.py       # персонаж ClippyJS -> папка Agents (map.png+agent.js+звуки)

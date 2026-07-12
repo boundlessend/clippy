@@ -22,7 +22,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # заметки = статичный блок про установку/Gatekeeper + авто-changelog из истории коммитов
+          cp .github/release-notes.md /tmp/notes.md
+          gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body >> /tmp/notes.md 2>/dev/null || true
           gh release create "$GITHUB_REF_NAME" \
             build/ClippyMac.dmg \
             --title "Clippy $GITHUB_REF_NAME" \
-            --notes-file .github/release-notes.md
+            --notes-file /tmp/notes.md
