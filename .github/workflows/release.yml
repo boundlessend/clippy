@@ -1,0 +1,28 @@
+name: Release
+
+# тег вида v1.0.0 -> сборка .dmg на macOS -> GitHub Release с прикреплённым файлом.
+# версия приложения берётся из тега (без префикса v). без сторонних экшенов и Sparkle.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write        # нужно для создания релиза
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build DMG (version from tag)
+        run: VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-dmg.sh
+
+      - name: Publish GitHub Release with DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/ClippyMac.dmg \
+            --title "Clippy $GITHUB_REF_NAME" \
+            --notes-file .github/release-notes.md
