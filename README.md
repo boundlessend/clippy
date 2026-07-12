@@ -25,7 +25,7 @@
 
 - **animated Dock icon** - the app always lives in the Dock, and your chosen character animates there with a smooth idle loop that rests between bursts and occasionally throws in a spontaneous gesture.
 - **a fact on click** - left-click the Dock icon and a fresh tip appears in a speech bubble right next to the icon.
-- **Dock-aware bubble** - the bubble auto-sizes to the text, sits next to the icon (following the cursor on the icon), and its tail points at the Dock, wherever the Dock is (bottom / left / right).
+- **Dock-aware bubble** - the bubble grows in height to fit the text (fixed width), sits next to the icon (following the cursor on the icon), and its tail points at the Dock, wherever the Dock is (bottom / left / right).
 - **Dock menu** - right-click the Dock icon: Show a fact / Show a gesture / Gestures (pick a specific one) / Character (pick one) / Random character / Settings… / About.
 - **feed files** - drag a file onto the Dock icon and the character reacts; the first time it asks whether fed files should go to the Trash (changeable in Settings).
 - **battery-friendly** - the idle animation rests between bursts and stops when the screen is locked or the display sleeps; an optional toggle also pauses it in Low Power Mode.
@@ -74,6 +74,8 @@ Verify the logic without a GUI (sprite parsing, frame cropping, branching, sound
 ```bash
 CLIPPY_SELFTEST=1 swift run
 ```
+
+> Note: `swift run` launches an unbundled binary with no Info.plist, so App Transport Security blocks Ollama over `http://localhost`. Claude / RSS / Wikipedia (https) work either way; to exercise Ollama, build the app first (`./scripts/build-dmg.sh`) and run the `.app`.
 
 Import a [ClippyJS](https://github.com/smore-inc/clippy.js) character (its `map.png` + `agent.js` + optional `sounds-mp3.js`) into the `Agents` folder, then pick it in Settings:
 

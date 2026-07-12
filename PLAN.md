@@ -11,7 +11,7 @@
 | стек | нативно Swift/SwiftUI | ноль зависимостей, анимированная иконка в доке + borderless NSPanel для облачка |
 | распространение | только для себя | без подписи и нотаризации, сборка/запуск локально |
 | анимация | оригинальные спрайты Clippy | переиспользуем спрайтшит и тайминги из ClippyJS, не рисуем с нуля |
-| контент | локальный JSON на старте, провайдер pluggable | один протокол, за ним local / Ollama / Claude / RSS / facts-API |
+| контент | локальный JSON на старте, провайдер pluggable | один протокол, за ним local / Ollama / Claude (пул или живой запрос) / RSS / Википедия «В этот день» |
 
 ## архитектура
 
@@ -119,10 +119,17 @@ protocol TipProvider { func nextTip() async throws -> String }
   массив или словарь по категориям); нет файла -> `throws` -> у персонажа своих фактов
   нет, облачко не показываем. локальный провайдер выбирается по активному персонажу:
   Clippy -> `LocalJSONProvider`, иначе -> `AgentTipsProvider`
-- `OllamaProvider`: POST `http://localhost:11434/api/generate`, `stream=false`
-- `ClaudeProvider`: Anthropic Messages API (при реализации свериться со скиллом
-  claude-api за актуальной моделью и эндпоинтом; ключ - из Keychain, не в коде)
-- `RSSProvider` / `FactsAPIProvider`: GET публичного фида, парсинг
+- `OllamaProvider` / `ClaudeProvider` (`LLMProvider.complete`): генерируют факт по
+  промпту. два режима на провайдер (`LLMConfig`): живой запрос на клик или заранее
+  сгенерированный пул. промпт собирается из полей (персона/ограничения/длина) и
+  редактируется; свой для Ollama и Claude
+- `PoolProvider` + `PoolStore`: пул заранее сгенерированных фактов на персонажа
+  (JSON в Application Support, потолок 500). батч-генерация - один запрос на N фактов
+  (`generateFactBatch`, таймаут `batchTimeout`), по клику берём мгновенно из пула
+- `OnThisDayProvider`: «В этот день» из русской Википедии (событие на сегодняшнюю дату,
+  без ключа); события дня кэшируются в памяти (`OnThisDayCache`)
+- `RSSProvider`: заголовок первой записи ленты (RSS 2.0 `<item>` или Atom `<entry>`),
+  обрезка длинного по слову
 - внешние вызовы: retries с warning-логами и нарастающей паузой, затем raise последней
   ошибки (правило проекта). Провайдер выбирается в настройках; при его сбое - фолбэк на
   локальные факты персонажа (`providerChain`: выбранный, затем `.local`)
@@ -150,10 +157,11 @@ clippy-mac/
     SpriteAnimator.swift           # плеер кадров + branching + звук + композит оверлеев + onRender
     ClippyAgent.swift              # модели + парсинг agent.json (бандл/папка) + кроп кадра
     SpeechBubbleView.swift         # SwiftUI баллон с хвостиком в сторону дока
-    Settings.swift                 # AppSettings над UserDefaults
+    Settings.swift                 # AppSettings над UserDefaults (+ LLMConfig на провайдера)
     AgentLibrary.swift             # обнаружение персонажей (встроенный + папка Agents)
-    TipProvider.swift              # protocol + LocalJSONProvider
-    NetworkProviders.swift         # Ollama / Claude / RSS / FactsAPI
+    TipProvider.swift              # protocol + LocalJSONProvider + AgentTipsProvider
+    NetworkProviders.swift         # Ollama / Claude / RSS / «В этот день» + батч-генерация
+    PoolStore.swift                # пул заранее сгенерированных фактов на персонажа + PoolProvider
     LoginItem.swift                # автозапуск (SMAppService + миграция со старого LaunchAgent)
     SelfCheck.swift                # CLIPPY_SELFTEST=1: проверка ассетов без GUI
     Resources/
@@ -226,7 +234,7 @@ clippy-mac/
 - P5.1 `OllamaProvider` (localhost:11434, `stream=false`, retries+raise)
 - P5.2 `ClaudeProvider` (Messages API, ключ из Keychain; свериться со скиллом
   claude-api)
-- P5.3 `RSSProvider` / `FactsAPIProvider`
+- P5.3 `RSSProvider` (RSS 2.0 + Atom) / `OnThisDayProvider` (Википедия «В этот день»)
 - P5.4 выбор провайдера в меню трея; настройки эндпоинта/ключа
 - **verify:** переключение источника; реальный вызов локального Ollama возвращает
   совет
@@ -469,6 +477,32 @@ Homebrew-каст). по функционалу мы уже шире (факты
 - фолбэк ключа Claude на `ANTHROPIC_API_KEY` (env) оставлен как dev-удобство (не
   логируется, не сохраняется)
 - power-наблюдатели не снимаем: benign на единственном долгоживущем `AppDelegate`
+
+## сделано (2026-07-12)
+
+сессия фич + аудит с правками.
+
+**новое:**
+- источник «Факты из интернета» заменён на **Википедию «В этот день»**: событие на
+  сегодняшнюю дату из русской Википедии, без ключа; события дня кэшируются в памяти
+  (`OnThisDayCache`) - один сетевой запрос в сутки
+- **пул заранее сгенерированных фактов** на персонажа (`PoolStore` / `PoolProvider`):
+  батч-генерация одним запросом (`generateFactBatch`), по клику - мгновенно из пула;
+  два режима на провайдер (пул / живой запрос на клик), потолок пула 500
+- **per-provider промпты** (`LLMConfig`): персона / ограничения / длина собирают
+  редактируемый промпт, свой для Ollama и Claude; в UserDefaults с дебаунсом
+- окно **«Частые вопросы» (FAQ)** с гайдами по источникам и добавлению персонажа
+- клик по иконке дока всегда показывает факт, даже при открытом окне настроек/FAQ
+
+**аудит (правки):**
+- таймаут батч-генерации 180с и 1 попытка (Ollama со `stream:false` отдаёт всё разом,
+  15с не хватало); `RSSProvider` понимает и Atom (`<entry>`), не только RSS 2.0
+- облачко показывается дольше для длинного текста; кнопка «Отмена» на генерации;
+  пустой пул подсказывает в облачке, а не молчит; осиротевшие пулы чистятся при
+  `reloadAgents`; ошибка генерации - sheet на окне настроек
+- лицензия проекта переведена на **BSD-3-Clause** (было MIT); версия `1.1.0`
+- `swift run` (голый бинарь без Info.plist): ATS режет Ollama по http; https-источники
+  (Claude/RSS/Википедия) работают, для Ollama нужен собранный `.app`
 
 ## иконка
 
