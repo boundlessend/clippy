@@ -16,7 +16,7 @@
   <img alt="CI" src="https://github.com/boundlessend/clippy-mac/actions/workflows/ci.yml/badge.svg">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-13%2B-111827">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-5.9-f05138">
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-2563eb">
+  <img alt="license" src="https://img.shields.io/badge/license-BSD--3--Clause-2563eb">
 </p>
 
 `Clippy` is a small macOS app that brings back the legendary assistant. Your character lives in the Dock as an animated icon; left-click it and a fact pops up in a speech bubble right next to it. Native Swift, zero dependencies.
@@ -88,8 +88,8 @@ Plan and backlog live in [PLAN.md](PLAN.md).
 - sprites, animation timings, and sounds come from [ClippyJS](https://github.com/smore-inc/clippy.js) (MIT), which in turn come from **Microsoft Agent** (the "Clippit" character)
 - the desktop-agent idea and some features are inspired by [Cosmo/Clippy](https://github.com/Cosmo/Clippy)
 
-Sprites and sounds remain the intellectual property of their owners and are included for personal, non-commercial use. The project's MIT license covers the source code only.
+Sprites and sounds remain the intellectual property of their owners and are included for personal, non-commercial use. The project's BSD 3-Clause license covers the source code only.
 
 ## License
 
-[MIT](LICENSE) for the source code. For assets, see the section above.
+[BSD 3-Clause](LICENSE) for the source code. For assets, see the section above.
