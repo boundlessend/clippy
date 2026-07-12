@@ -35,11 +35,13 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
              позиция: bubbleOrigin(mouseLocation, dockOrientation) - низ/слева/справа
                                           │
                                     TipProvider (protocol)
-                                    ├─ LocalJSONProvider   (старт)
+                                    ├─ LocalJSONProvider    (Clippy)
+                                    ├─ AgentTipsProvider    (прочие персонажи)
                                     ├─ OllamaProvider       (localhost:11434)
                                     ├─ ClaudeProvider       (Anthropic API)
+                                    ├─ PoolProvider         (пул на персонажа)
                                     ├─ RSSProvider
-                                    └─ FactsAPIProvider
+                                    └─ OnThisDayProvider    (Википедия «В этот день»)
 ```
 
 ### ключевые технические узлы
@@ -401,7 +403,7 @@ Homebrew-каст). по функционалу мы уже шире (факты
 «О программе» с версией, версионирование `1.0.0`; поля провайдеров в окне настроек
 (Ollama URL/модель, RSS, ключ Claude - в Keychain); фолбэк-цепочка провайдеров
 (выбранный -> локальный); категории локальных фактов (6 тем, тумблеры, фильтр в
-`LocalJSONProvider`, `tips.json` по категориям); двуязычный README; импорт
+`LocalJSONProvider`, `tips.json` по категориям); README (русский); импорт
 персонажей ClippyJS + композит оверлеев; набор персонажей в комплекте (5 шт.);
 динамический размер облачка под длину факта. README теперь только на русском
 (английский удалён, `README.ru.md` -> `README.md`); полный i18n - в бэклоге.
