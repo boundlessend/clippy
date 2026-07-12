@@ -10,8 +10,10 @@ let rssMaxTitle = 140
 
 struct HTTPError: Error { let status: Int }
 
-// таймаут внешних запросов
+// таймаут внешних запросов: обычный (один факт/фид) и для генерации пачки, где
+// локальная Ollama с stream:false отдаёт ответ только сгенерив все N фактов
 let networkTimeout: TimeInterval = 15
+let batchTimeout: TimeInterval = 180
 
 // MARK: - генерация пачкой (наполнение пула) и сборка промпта
 
@@ -110,13 +112,15 @@ struct OllamaProvider: TipProvider, LLMProvider {
     let endpoint: URL
     let model: String
     var prompt: String = tipPrompt          // промпт для одного факта (nextTip); complete берёт свой
+    var timeout: TimeInterval = networkTimeout   // батч поднимает до batchTimeout
+    var attempts: Int = 3                        // батч ставит 1: не гонять долгую генерацию заново
 
     func nextTip() async throws -> String { try await complete(prompt) }
 
     func complete(_ prompt: String) async throws -> String {
-        try await withRetries {
+        try await withRetries(attempts) {
             var req = URLRequest(url: endpoint)
-            req.timeoutInterval = networkTimeout
+            req.timeoutInterval = timeout
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: Any] = ["model": model, "prompt": prompt, "stream": false]
@@ -138,21 +142,25 @@ struct ClaudeProvider: TipProvider, LLMProvider {
     let model: String
     let maxTokens: Int
     var prompt: String                       // промпт для одного факта (nextTip); complete берёт свой
+    var timeout: TimeInterval                 // батч поднимает до batchTimeout
+    var attempts: Int                         // батч ставит 1: не платить за долгий запрос дважды
 
     init(apiKey: String, model: String = defaultClaudeModel, maxTokens: Int = 150,
-         prompt: String = tipPrompt) {
+         prompt: String = tipPrompt, timeout: TimeInterval = networkTimeout, attempts: Int = 3) {
         self.apiKey = apiKey
         self.model = model
         self.maxTokens = maxTokens
         self.prompt = prompt
+        self.timeout = timeout
+        self.attempts = attempts
     }
 
     func nextTip() async throws -> String { try await complete(prompt) }
 
     func complete(_ prompt: String) async throws -> String {
-        try await withRetries {
+        try await withRetries(attempts) {
             var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-            req.timeoutInterval = networkTimeout
+            req.timeoutInterval = timeout
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
@@ -179,28 +187,48 @@ let onThisDayMaxLen = 220
 
 struct OnThisDayProvider: TipProvider {
     func nextTip() async throws -> String {
+        let cal = Calendar(identifier: .gregorian)
+        let now = Date()
+        let mmdd = String(format: "%02d/%02d",
+                          cal.component(.month, from: now), cal.component(.day, from: now))
+        let ev = try await OnThisDayCache.shared.randomEvent(dateKey: mmdd)
+        let base = ev.year.map { "\($0) - \(ev.text)" } ?? ev.text
+        return truncateTitle(base, max: onThisDayMaxLen)
+    }
+
+    // весь фид на дату - один сетевой запрос; далее берём из кэша (см. OnThisDayCache)
+    static func fetchEvents(mmdd: String) async throws -> [OnThisDayEvent] {
         try await withRetries {
-            let cal = Calendar(identifier: .gregorian)
-            let now = Date()
-            let mmdd = String(format: "%02d/%02d",
-                              cal.component(.month, from: now), cal.component(.day, from: now))
             let url = URL(string: "https://ru.wikipedia.org/api/rest_v1/feed/onthisday/events/\(mmdd)")!
             var req = URLRequest(url: url)
             req.timeoutInterval = networkTimeout
             req.setValue("ClippyMac (macOS dock assistant)", forHTTPHeaderField: "User-Agent")
             let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp)
-            let decoded = try JSONDecoder().decode(OnThisDayResponse.self, from: data)
-            guard let ev = decoded.events.randomElement() else {
-                throw AssetError.missing("нет событий на сегодня")
-            }
-            let base = ev.year.map { "\($0) - \(ev.text)" } ?? ev.text
-            return truncateTitle(base, max: onThisDayMaxLen)
+            return try JSONDecoder().decode(OnThisDayResponse.self, from: data).events
         }
     }
 }
-private struct OnThisDayResponse: Decodable { let events: [OnThisDayEvent] }
-private struct OnThisDayEvent: Decodable { let year: Int?; let text: String }
+
+// кэш событий «В этот день» на текущую дату: не качаем весь фид на каждый клик,
+// а держим события дня в памяти (рефетч, когда сменилась дата)
+actor OnThisDayCache {
+    static let shared = OnThisDayCache()
+    private var dateKey = ""
+    private var events: [OnThisDayEvent] = []
+
+    func randomEvent(dateKey key: String) async throws -> OnThisDayEvent {
+        if key != dateKey || events.isEmpty {
+            events = try await OnThisDayProvider.fetchEvents(mmdd: key)
+            dateKey = key
+        }
+        guard let ev = events.randomElement() else { throw AssetError.missing("нет событий на сегодня") }
+        return ev
+    }
+}
+
+struct OnThisDayResponse: Decodable { let events: [OnThisDayEvent] }
+struct OnThisDayEvent: Decodable, Sendable { let year: Int?; let text: String }
 
 // MARK: - RSS-лента (заголовок первого элемента)
 
@@ -221,12 +249,15 @@ struct RSSProvider: TipProvider {
     }
 }
 
-// минимальный парсер: вытащить <title> первого <item>
+// минимальный парсер: вытащить <title> первой записи ленты.
+// RSS 2.0 - это <item>, Atom - <entry>; поддерживаем оба (иначе Atom молча падал в фолбэк)
 private final class RSSFirstTitle: NSObject, XMLParserDelegate {
     private var inItem = false
     private var inTitle = false
     private var buffer = ""
     private var result: String?
+
+    private static func isEntry(_ el: String) -> Bool { el == "item" || el == "entry" }
 
     func parse(_ data: Data) -> String? {
         let p = XMLParser(data: data)
@@ -237,8 +268,8 @@ private final class RSSFirstTitle: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didStartElement el: String, namespaceURI: String?,
                 qualifiedName: String?, attributes: [String: String]) {
-        if el == "item" { inItem = true }
-        if inItem && el == "title" { inTitle = true; buffer = "" }
+        if Self.isEntry(el) { inItem = true }
+        if inItem && el == "title" { inTitle = true; buffer = "" }   // title до записи (заголовок ленты) пропускаем
     }
 
     func parser(_ parser: XMLParser, foundCharacters s: String) {
@@ -251,6 +282,6 @@ private final class RSSFirstTitle: NSObject, XMLParserDelegate {
             result = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
             inTitle = false
         }
-        if el == "item" { parser.abortParsing() }        // только первый элемент
+        if Self.isEntry(el) { parser.abortParsing() }        // только первая запись
     }
 }
