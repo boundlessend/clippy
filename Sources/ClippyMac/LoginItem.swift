@@ -13,18 +13,20 @@ func isLoginItemEnabled() -> Bool {
     }
 }
 
-func setLoginItem(_ enabled: Bool) {
+// бросает при ошибке регистрации (напр. запуск из исходников, а не установленного .app) -
+// вызывающий показывает alert, а не молча откатывает тумблер
+func setLoginItem(_ enabled: Bool) throws {
     removeLegacyLaunchAgent()                           // убрать LaunchAgent из прежней реализации
-    do {
-        if enabled {
-            if SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
-        } else {
-            if SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
-        }
-    } catch {
-        NSLog("clippy: не удалось изменить автозапуск: \(error)")
+    if enabled {
+        if SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
+    } else {
+        if SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
     }
 }
+
+// после register() система может ждать подтверждения в Системных настройках -> Объекты входа
+func loginItemNeedsApproval() -> Bool { SMAppService.mainApp.status == .requiresApproval }
+func openLoginItemsSettings() { SMAppService.openSystemSettingsLoginItems() }
 
 // одноразовая миграция при запуске: если остался LaunchAgent прежней реализации,
 // перенести автозапуск на SMAppService (сохранив «включено»), чтобы при входе не плодилась копия
@@ -32,7 +34,7 @@ func migrateLegacyLoginItemIfNeeded() {
     let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/LaunchAgents/com.clippymac.agent.plist")
     guard FileManager.default.fileExists(atPath: url.path) else { return }
-    setLoginItem(true)                                 // удалит plist и зарегистрирует через SMAppService
+    try? setLoginItem(true)                             // удалит plist и зарегистрирует через SMAppService
 }
 
 // удалить LaunchAgent прежней реализации (иначе при входе поднималась вторая копия)

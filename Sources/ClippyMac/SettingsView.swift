@@ -74,7 +74,8 @@ struct SettingsRootView: View {
                         rowSep()
                         SwitchRow(icon: "arrow.right.circle.fill", tone: toneGreen,
                                   title: "Запускать при входе", subtitle: nil,
-                                  isOn: Binding(get: { isLoginItemEnabled() }, set: { setLoginItem($0) }))
+                                  isOn: Binding(get: { isLoginItemEnabled() },
+                                                set: { delegate.applyLoginItem($0) }))
                     }
 
                     eyebrow("Персонаж", toneIndigo)

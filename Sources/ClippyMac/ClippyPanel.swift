@@ -14,6 +14,9 @@ func makeOverlayPanel(contentView: NSView, size: NSSize) -> NSPanel {
     panel.backgroundColor = .clear
     panel.isOpaque = false
     panel.hasShadow = false
+    // облачко намеренно всегда светлое - фиксируем aqua, иначе в тёмной теме fittingSize
+    // и рендер текста внутри NSHostingView считаются в darkAqua и «плывут»
+    panel.appearance = NSAppearance(named: .aqua)
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
     panel.ignoresMouseEvents = true          // облачко не интерактивно, клики проходят насквозь
     panel.contentView = contentView

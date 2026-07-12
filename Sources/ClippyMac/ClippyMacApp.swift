@@ -73,6 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         AppSettings.shared.flushPendingWrites()   // не потерять последний ввод ключа
     }
 
+    // secure coding для восстановления состояния (macOS 14+): иначе рантайм-warning
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
     // не крутить idle, когда иконка не видна (экран заблокирован или дисплей спит) -
     // экономия CPU/батареи; плюс опциональная пауза в режиме энергосбережения
     private func setupPowerNotifications() {
@@ -218,7 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             uniquingKeysWith: { first, _ in first })
         if !availableAgents.contains(where: { $0.name == AppSettings.shared.activeAgent }) {
             AppSettings.shared.activeAgent = builtInAgentName
-            rebuildDockAnimator()          // onChange не сработает на программный сброс
+            applyAgentChange()             // программный сброс: перестроить аниматор и обновить счётчик пула
         }
         PoolStore.prune(keeping: Set(availableAgents.map(\.name)))   // убрать пулы исчезнувших персонажей
     }
@@ -230,6 +233,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     func applyAgentChange() {
         rebuildDockAnimator()
         refreshPoolCount()
+    }
+
+    // тумблер автозапуска с обратной связью: ошибка -> alert (в т.ч. dev-запуск без .app);
+    // система ждёт подтверждения -> предлагаем открыть Системные настройки -> Объекты входа
+    func applyLoginItem(_ enabled: Bool) {
+        do {
+            try setLoginItem(enabled)
+        } catch {
+            let a = NSAlert()
+            a.messageText = "Не удалось изменить автозапуск"
+            a.informativeText = "\(error)\n\nАвтозапуск работает только у установленного приложения "
+                + "(не при запуске из исходников)."
+            a.runModal()
+            return
+        }
+        if enabled, loginItemNeedsApproval() {
+            let a = NSAlert()
+            a.messageText = "Разрешите автозапуск"
+            a.informativeText = "macOS ждёт подтверждения. Откройте Системные настройки -> Основные -> "
+                + "Объекты входа и включите Clippy."
+            a.addButton(withTitle: "Открыть настройки")
+            a.addButton(withTitle: "Позже")
+            if a.runModal() == .alertFirstButtonReturn { openLoginItemsSettings() }
+        }
     }
 
     private func makeMainMenu() -> NSMenu {
@@ -283,25 +310,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         ])
     }
 
+    // общая фабрика окон настроек/FAQ: одинаковые стиль, размеры, delegate, автосейв позиции
+    private func makePanelWindow<Content: View>(title: String, autosave: String,
+                                                content: Content) -> NSWindow {
+        let hosting = NSHostingController(rootView: content)
+        hosting.sizingOptions = []                     // не навязывать окну размер контента
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: settingsWidth, height: settingsHeight),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        w.contentViewController = hosting
+        w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
+        w.minSize = NSSize(width: 440, height: 420)    // 6-колоночная сетка персонажей не влезала в 380
+        w.title = title
+        w.isReleasedWhenClosed = false
+        w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла
+        w.center()
+        w.setFrameAutosaveName(autosave)               // запоминаем размер и позицию между открытиями
+        return w
+    }
+
     // единое окно настроек: из дока и из меню приложения
     func showSettings() {
         refreshPoolCount()                         // счётчик пула актуален к открытию
         if settingsWindow == nil {
-            let hosting = NSHostingController(rootView: SettingsRootView(delegate: self))
-            hosting.sizingOptions = []                 // не навязывать окну размер контента
-            let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: settingsWidth, height: settingsHeight),
-                styleMask: [.titled, .closable, .resizable],
-                backing: .buffered, defer: false)
-            w.contentViewController = hosting
-            w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
-            w.minSize = NSSize(width: 380, height: 420)   // не даём окну схлопнуться
-            w.title = "Настройки Clippy"
-            w.isReleasedWhenClosed = false
-            w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла
-            w.center()
-            w.setFrameAutosaveName("ClippySettingsWindow")   // запоминаем размер и позицию между открытиями
-            settingsWindow = w
+            settingsWindow = makePanelWindow(title: "Настройки Clippy", autosave: "ClippySettingsWindow",
+                                             content: SettingsRootView(delegate: self))
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -310,21 +343,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // окно «Частые вопросы»: гайды по настройке источников и добавлению персонажей
     func showFAQ() {
         if faqWindow == nil {
-            let hosting = NSHostingController(rootView: FAQView())
-            hosting.sizingOptions = []                 // не навязывать окну размер контента
-            let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: settingsWidth, height: settingsHeight),
-                styleMask: [.titled, .closable, .resizable],
-                backing: .buffered, defer: false)
-            w.contentViewController = hosting
-            w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
-            w.minSize = NSSize(width: 380, height: 420)
-            w.title = "Частые вопросы"
-            w.isReleasedWhenClosed = false
-            w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла
-            w.center()
-            w.setFrameAutosaveName("ClippyFAQWindow")   // запоминаем размер и позицию
-            faqWindow = w
+            faqWindow = makePanelWindow(title: "Частые вопросы", autosave: "ClippyFAQWindow",
+                                        content: FAQView())
         }
         NSApp.activate(ignoringOtherApps: true)
         faqWindow?.makeKeyAndOrderFront(nil)
@@ -361,6 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // построить аниматор активного персонажа и запустить бесконечный idle в доке
     private func rebuildDockAnimator() {
         guard let dockView else { return }
+        gestureInFlight = false                 // если сборка бросит на кривом agent.json, idle не должен остаться заглушённым
         do {
             let ref = activeAgentRef()
             let agent = try loadClippyAgent(from: ref.directory)
@@ -474,7 +495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     private func scheduleHide(after seconds: Double) {
         hideWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.bubblePanel?.orderOut(nil) }
+        let panel = bubblePanel          // прячем именно эту панель, а не ту, что окажется текущей на момент срабатывания
+        let work = DispatchWorkItem { [weak panel] in panel?.orderOut(nil) }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
@@ -484,10 +506,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // фолбэк-цепочка: выбранный провайдер, при ошибке - локальные факты персонажа
     private func fetchTip() async -> String? {
         for kind in providerChain(selected: AppSettings.shared.providerKind) {
-            do { return try await provider(for: kind).nextTip() }
-            catch { NSLog("clippy: провайдер \(kind.rawValue) не сработал: \(error)") }
+            do {
+                let tip = try await provider(for: kind).nextTip()
+                if !tip.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return tip }
+                // пустой результат (не throw) не показываем пустым облачком - идём к фолбэку
+            } catch { NSLog("clippy: провайдер \(kind.rawValue) не сработал: \(error)") }
         }
         return nil
+    }
+
+    // приоритет источника: настройка -> env -> дефолт (одно место для provider/makeLLMProvider)
+    private func resolveOllama() throws -> (url: URL, model: String) {
+        let s = AppSettings.shared
+        let env = ProcessInfo.processInfo.environment
+        let urlStr = s.ollamaURL.isEmpty
+            ? (env["CLIPPY_OLLAMA_URL"] ?? AppSettings.defaultOllamaURL) : s.ollamaURL
+        guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
+        let model = s.ollamaModel.isEmpty
+            ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
+        return (url, model)
+    }
+    private func resolveClaudeKey() throws -> String {
+        let s = AppSettings.shared
+        let key = s.claudeKey.isEmpty
+            ? (ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
+        guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
+        return key
     }
 
     // локальные факты - по активному персонажу: Clippy -> встроенный tips.json;
@@ -502,18 +546,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             return try LocalJSONProvider(enabled: s.enabledCategories)
         case .ollama:
             if s.ollamaConfig.usePool { return try PoolProvider(character: s.activeAgent) }
-            let urlStr = s.ollamaURL.isEmpty
-                ? (env["CLIPPY_OLLAMA_URL"] ?? AppSettings.defaultOllamaURL) : s.ollamaURL
-            guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
-            let model = s.ollamaModel.isEmpty
-                ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
-            return OllamaProvider(endpoint: url, model: model,
+            let o = try resolveOllama()
+            return OllamaProvider(endpoint: o.url, model: o.model,
                                   prompt: singleFactPrompt(style: s.ollamaConfig.prompt))
         case .claude:
             if s.claudeConfig.usePool { return try PoolProvider(character: s.activeAgent) }
-            let key = s.claudeKey.isEmpty ? (env["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
-            guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
-            return ClaudeProvider(apiKey: key, maxTokens: max(150, s.claudeConfig.maxLen),
+            return ClaudeProvider(apiKey: try resolveClaudeKey(), maxTokens: max(150, s.claudeConfig.maxLen),
                                   prompt: singleFactPrompt(style: s.claudeConfig.prompt))
         case .facts:
             return OnThisDayProvider()
@@ -530,20 +568,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // построить LLM-провайдер выбранного источника для генерации пачкой
     private func makeLLMProvider(_ kind: ProviderKind, maxTokens: Int) throws -> LLMProvider {
-        let s = AppSettings.shared
-        let env = ProcessInfo.processInfo.environment
         switch kind {
         case .ollama:
-            let urlStr = s.ollamaURL.isEmpty
-                ? (env["CLIPPY_OLLAMA_URL"] ?? AppSettings.defaultOllamaURL) : s.ollamaURL
-            guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
-            let model = s.ollamaModel.isEmpty
-                ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
-            return OllamaProvider(endpoint: url, model: model, timeout: batchTimeout, attempts: 1)
+            let o = try resolveOllama()
+            return OllamaProvider(endpoint: o.url, model: o.model, timeout: batchTimeout, attempts: 1)
         case .claude:
-            let key = s.claudeKey.isEmpty ? (env["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
-            guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
-            return ClaudeProvider(apiKey: key, maxTokens: maxTokens, timeout: batchTimeout, attempts: 1)
+            return ClaudeProvider(apiKey: try resolveClaudeKey(), maxTokens: maxTokens,
+                                  timeout: batchTimeout, attempts: 1)
         default:
             throw AssetError.missing("генерация только для Ollama/Claude")
         }
