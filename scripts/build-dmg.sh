@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="1.1.0"                     # версия приложения (semver), правится здесь
+VERSION="${VERSION:-1.0.0}"         # версия (semver); в CI берётся из git-тега (release.yml)
 
 APP="build/ClippyMac.app"
 DMG="build/ClippyMac.dmg"
@@ -58,8 +58,26 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> ad-hoc signing"
+# ресурс-бандл SwiftPM плоский и без Info.plist - codesign (macOS 15+/26) такой не
+# принимает. Впишем минимальный Info.plist в корень бандла, иначе подпись падает
+RESB="$APP/Contents/Resources/$(basename "$RESBUNDLE")"
+cat > "$RESB/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.clippymac.resources</string>
+  <key>CFBundleName</key><string>ClippyMac_ClippyMac</string>
+  <key>CFBundlePackageType</key><string>BNDL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundleVersion</key><string>${VERSION}</string>
+</dict>
+</plist>
+PLIST
+
 # подписываем вложенный ресурс-бандл, затем сам .app (--deep у codesign помечен deprecated)
-codesign --force --sign - "$APP/Contents/Resources/$(basename "$RESBUNDLE")"
+codesign --force --sign - "$RESB"
 codesign --force --sign - "$APP"
 
 echo "==> creating dmg"
