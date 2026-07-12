@@ -454,15 +454,14 @@ Homebrew-каст). по функционалу мы уже шире (факты
 
 - концепт «Notepad»: скрепыш-персонаж (серебристая проволока, глаза, брови) на
   линованном кремовом листе. Выбран из 6 сгенерированных вариантов (Sunny, Notepad,
-  Bubble, Minimal, Aqua, Dark) - концепты и страница сравнения в `design/icon-gen/`
-- генерация: Codex `image_gen` (нативный tool, через `codex exec`, без API-ключей);
-  промпты в `design/icon-gen/` (мастер - `_icon1024.png`)
+  Bubble, Minimal, Aqua, Dark)
+- генерация: Codex `image_gen` (нативный tool, через `codex exec`, без API-ключей)
 - углы: квадратные углы генерации срезаны в прозрачность squircle-маской ImageMagick
   (`roundrectangle … radius 300`, `-compose CopyOpacity`) - full-bleed скругление
 - собрано в `assets/AppIcon.png` (1024) и `assets/AppIcon.icns` (все размеры);
   подключена в `build-dmg.sh` (`CFBundleIconFile`) и в шапку README
-- при переделке: сгенерировать/выбрать в `design/icon-gen/`, applied squircle-маску,
-  iconset через `magick -resize` -> `iconutil -c icns`
+- при переделке: сгенерировать концепт через Codex `image_gen`, squircle-маска
+  ImageMagick (`-compose CopyOpacity`), iconset через `magick -resize` -> `iconutil -c icns`
 
 ## следующий шаг
 
