@@ -30,7 +30,8 @@ enum PoolStore {
     static func append(character: String, facts: [String]) throws {
         let merged = orderedUnique(load(character: character) + facts)
         let capped = merged.count > maxPool ? Array(merged.suffix(maxPool)) : merged
-        try JSONEncoder().encode(capped).write(to: url(character: character))
+        // .atomic: при падении в момент записи файл пула не останется усечённым/битым
+        try JSONEncoder().encode(capped).write(to: url(character: character), options: .atomic)
     }
 
     static func clear(character: String) throws {

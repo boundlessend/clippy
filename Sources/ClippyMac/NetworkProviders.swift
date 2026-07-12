@@ -128,7 +128,9 @@ struct OllamaProvider: TipProvider, LLMProvider {
             let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp)
             let decoded = try JSONDecoder().decode(OllamaResponse.self, from: data)
-            return decoded.response.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = decoded.response.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw AssetError.missing("Ollama вернул пустой ответ") }
+            return text
         }
     }
 }
@@ -174,7 +176,9 @@ struct ClaudeProvider: TipProvider, LLMProvider {
             let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp)
             let decoded = try JSONDecoder().decode(ClaudeResponse.self, from: data)
-            return decoded.content.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let text = (decoded.content.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw AssetError.missing("Claude вернул пустой ответ") }
+            return text
         }
     }
 }
@@ -193,7 +197,9 @@ struct OnThisDayProvider: TipProvider {
                           cal.component(.month, from: now), cal.component(.day, from: now))
         let ev = try await OnThisDayCache.shared.randomEvent(dateKey: mmdd)
         let base = ev.year.map { "\($0) - \(ev.text)" } ?? ev.text
-        return truncateTitle(base, max: onThisDayMaxLen)
+        let result = truncateTitle(base, max: onThisDayMaxLen)
+        guard !result.isEmpty else { throw AssetError.missing("пустое событие") }
+        return result
     }
 
     // весь фид на дату - один сетевой запрос; далее берём из кэша (см. OnThisDayCache)
@@ -241,7 +247,7 @@ struct RSSProvider: TipProvider {
             req.timeoutInterval = networkTimeout
             let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp)
-            guard let title = RSSFirstTitle().parse(data) else {
+            guard let title = RSSFirstTitle().parse(data), !title.isEmpty else {
                 throw AssetError.missing("RSS <item><title>")
             }
             return truncateTitle(title, max: rssMaxTitle)

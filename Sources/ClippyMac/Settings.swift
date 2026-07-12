@@ -148,7 +148,8 @@ final class AppSettings: ObservableObject {
 
     // LLMConfig <-> UserDefaults как JSON; нет/битый -> дефолт
     private func saveConfig(_ c: LLMConfig, _ key: String) {
-        if let data = try? JSONEncoder().encode(c) { d.set(data, forKey: key) }
+        do { d.set(try JSONEncoder().encode(c), forKey: key) }
+        catch { NSLog("clippy: не удалось сохранить конфиг \(key): \(error)") }
     }
     private static func loadConfig(_ d: UserDefaults, _ key: String) -> LLMConfig {
         guard let data = d.data(forKey: key),

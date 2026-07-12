@@ -6,7 +6,10 @@ func nextFrameIndex(current: Int, frames: [Frame]) -> Int {
     if let b = frames[current].branching {
         var r = Int.random(in: 0..<100)
         for branch in b.branches {
-            if r < branch.weight { return branch.frameIndex }
+            // индекс ветки из чужого agent.json может быть вне границ - тогда идём линейно
+            if r < branch.weight {
+                return frames.indices.contains(branch.frameIndex) ? branch.frameIndex : current + 1
+            }
             r -= branch.weight
         }
     }
@@ -73,6 +76,7 @@ final class SpriteAnimator {
     // рывка на стыке; после всплеска замираем на паузу (не крутим непрерывно -
     // главная экономия батареи), потом другая idle. branching здесь не нужен
     func loopIdle() {
+        guard !agent.animations.isEmpty else { return }   // персонаж без анимаций: не планируем пустые циклы
         // иногда вместо idle - спонтанный жест (беззвучно, «оживление»): тот же ритм
         // всплеск+отдых, лишних пробуждений и расхода батареи не добавляет
         if Double.random(in: 0..<1) < Self.spontaneousGestureChance,

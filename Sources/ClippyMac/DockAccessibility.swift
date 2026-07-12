@@ -86,8 +86,10 @@ private func axRect(_ element: AXUIElement) -> NSRect? {
           let sizeVal = sizeRef, CFGetTypeID(sizeVal) == AXValueGetTypeID() else { return nil }
     var pos = CGPoint.zero
     var size = CGSize.zero
-    AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
-    AXValueGetValue(sizeVal as! AXValue, .cgSize, &size)
+    // AXValue может быть другого подтипа: тогда pos/size остались бы нулевыми и якорь
+    // уехал бы в угол - лучше вернуть nil и откатиться на позицию курсора
+    guard AXValueGetValue(posVal as! AXValue, .cgPoint, &pos),
+          AXValueGetValue(sizeVal as! AXValue, .cgSize, &size) else { return nil }
     let primaryH = (NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main)?
         .frame.height ?? 0
     return NSRect(x: pos.x, y: primaryH - pos.y - size.height, width: size.width, height: size.height)

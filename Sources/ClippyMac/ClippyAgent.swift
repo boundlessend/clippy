@@ -74,5 +74,9 @@ func cropFrame(sheet: CGImage, at point: [Int], frameSize: CGSize) -> CGImage? {
     guard point.count == 2 else { return nil }       // кривой слой [x,y] у чужого агента
     let rect = CGRect(x: point[0], y: point[1],
                       width: Int(frameSize.width), height: Int(frameSize.height))
+    // rect чужого агента может выйти за спрайтшит: cropping тогда вернёт кадр меньшего
+    // размера и исказит композицию - вместо этого согласованно пропускаем слой (nil)
+    let bounds = CGRect(x: 0, y: 0, width: sheet.width, height: sheet.height)
+    guard bounds.contains(rect) else { return nil }
     return sheet.cropping(to: rect)
 }

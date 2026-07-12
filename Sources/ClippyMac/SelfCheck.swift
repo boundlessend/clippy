@@ -62,9 +62,9 @@ func runSelfCheckIfRequested() {
         // жесты персонажа: список содержит реальные жесты, но не idle/look/служебные
         let gestures = Set(expressiveGestures(from: Array(agent.animations.keys)))
         precondition(gestures.contains("Wave") && gestures.contains("Congratulate"),
-                     "gestureNames must include real gestures")
+                     "expressiveGestures must include real gestures")
         precondition(gestures.isDisjoint(with: ["Idle1_1", "LookUp", "RestPose", "Show", "Hide"]),
-                     "gestureNames must exclude idle/look/service anims")
+                     "expressiveGestures must exclude idle/look/service anims")
 
         // случайный персонаж: по возможности не текущий; единственный - возвращает себя
         precondition(pickRandomOther(from: ["a"], current: "a") == "a", "single element returns itself")
