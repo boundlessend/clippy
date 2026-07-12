@@ -272,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             .applicationName: "Clippy",
             .applicationVersion: appVersion,
             .credits: NSAttributedString(
-                string: "возрождение легендарного скрепыша на macOS",
+                string: "ваш скрепыш в доке",
                 attributes: [.font: NSFont.systemFont(ofSize: 11)]),
         ])
     }

@@ -5,7 +5,7 @@
 <h1 align="center">Clippy</h1>
 
 <p align="center">
-  <strong>легендарный скрепыш из Office, возрождённый на macOS</strong>
+  <strong>похоже, вам нужен скрепыш. он уже в доке</strong>
 </p>
 
 <p align="center">
