@@ -106,6 +106,7 @@ struct SettingsRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // тянемся за окном
         .background(P.ground)
         .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)                          // без полосы прокрутки
     }
 
     // шапка: аватар активного персонажа, имя, роль, быстрые действия
@@ -121,6 +122,11 @@ struct SettingsRootView: View {
             HStack(spacing: 8) {
                 ghostButton("Показать факт") { delegate.showFact() }
                 ghostButton("Жест") { delegate.playRandomGesture() }
+                Button { delegate.showFAQ() } label: {
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.system(size: 21)).foregroundStyle(P.accentStrong)
+                }
+                .buttonStyle(.plain).help("Частые вопросы: настройка источников и персонажей")
             }
         }
         .padding(.horizontal, 22)
@@ -197,7 +203,14 @@ struct SettingsRootView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 10)
             }
-        case .local, .facts:
+        case .facts:
+            rowSep()
+            Text("Случайные факты из бесплатного интернет-сервиса - настраивать ничего не нужно, требуется только интернет. Факты приходят на английском.")
+                .font(.system(size: 12)).foregroundStyle(P.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 12)
+        case .local:
             EmptyView()
         }
     }
@@ -256,25 +269,6 @@ struct SettingsRootView: View {
                 .strokeBorder(t.opacity(0.25), lineWidth: 1))
     }
 
-    // карточка-группа: белая подложка, скругление, тонкая рамка
-    @ViewBuilder private func settingsGroup<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        VStack(spacing: 0) { content() }
-            .padding(.horizontal, 16)
-            .background(P.card)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(P.line, lineWidth: 1))
-            .padding(.bottom, 16)
-    }
-
-    private func eyebrow(_ text: String, _ tone: Color) -> some View {
-        HStack(spacing: 7) {
-            Circle().fill(tone).frame(width: 6, height: 6)
-            Text(text.uppercased()).font(.system(size: 11, weight: .heavy)).tracking(0.7).foregroundStyle(P.ink3)
-        }
-        .padding(.horizontal, 4).padding(.top, 16).padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private func ghostButton(_ title: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title).font(.system(size: 12.5, weight: .medium)).foregroundStyle(P.ink2)
@@ -313,6 +307,26 @@ private func iconChip(_ name: String, _ tone: Color) -> some View {
         .overlay(Image(systemName: name).font(.system(size: 15, weight: .medium)).foregroundStyle(tone))
 }
 
+// карточка-группа: белая подложка, скругление, тонкая рамка
+@ViewBuilder private func settingsGroup<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+    VStack(spacing: 0) { content() }
+        .padding(.horizontal, 16)
+        .background(P.card)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(P.line, lineWidth: 1))
+        .padding(.bottom, 16)
+}
+
+// eyebrow-заголовок секции: цветная точка + капс-текст
+private func eyebrow(_ text: String, _ tone: Color) -> some View {
+    HStack(spacing: 7) {
+        Circle().fill(tone).frame(width: 6, height: 6)
+        Text(text.uppercased()).font(.system(size: 11, weight: .heavy)).tracking(0.7).foregroundStyle(P.ink3)
+    }
+    .padding(.horizontal, 4).padding(.top, 16).padding(.bottom, 8)
+    .frame(maxWidth: .infinity, alignment: .leading)
+}
+
 // MARK: - ряды
 
 // ряд с иконкой, заголовком, необязательным описанием и тумблером
@@ -328,8 +342,10 @@ private struct SwitchRow: View {
             iconChip(icon, tone)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 14)).foregroundStyle(P.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let subtitle {
                     Text(subtitle).font(.system(size: 12)).foregroundStyle(P.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
@@ -349,8 +365,10 @@ private struct InlineRow<Trailing: View>: View {
         HStack(spacing: 15) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.system(size: 14)).foregroundStyle(P.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let subtitle {
                     Text(subtitle).font(.system(size: 12)).foregroundStyle(P.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
@@ -387,5 +405,121 @@ private struct CharacterCard: View {
         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
             .strokeBorder(selected ? t : P.line, lineWidth: 1.5))
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - FAQ (частые вопросы: настройка источников и своего персонажа)
+// отдельное окно в стиле панели настроек. текст ответов - markdown (`код`, **жирный**)
+
+struct FAQView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                VStack(alignment: .leading, spacing: 0) {
+                    eyebrow("С чего начать", toneAmber)
+                    settingsGroup {
+                        FAQItem(icon: "cursorarrow.click", tone: toneAmber,
+                                q: "Как это вообще работает?",
+                                a: "Клик по иконке в доке показывает один факт в облачке. Откуда берётся факт - задаёт «Факты → Источник» в настройках. Если персонаж выключен тумблером «Включён», облачко не появляется.")
+                        rowSep()
+                        FAQItem(icon: "arrow.triangle.2.circlepath", tone: toneGreen,
+                                q: "Сменил источник, а факты как будто прежние?",
+                                a: "Если выбранный источник не ответил (нет интернета, не задан ключ или адрес), Clippy молча берёт локальный факт - чтобы облачко не было пустым. Ниже расписаны условия каждого источника.")
+                    }
+
+                    eyebrow("Источники фактов", toneTeal)
+                    settingsGroup {
+                        FAQItem(icon: "shippingbox.fill", tone: toneAmber,
+                                q: "Локальные советы",
+                                a: "Работают сразу, настраивать ничего не нужно: ~500 реплик Clippy. Чипами «Категории» можно оставить только интересные темы. Если снять все категории - Clippy честно скажет об этом в облачке.")
+                        rowSep()
+                        FAQItem(icon: "globe", tone: toneTeal,
+                                q: "Факты из интернета",
+                                a: "Бесплатный публичный сервис, ключ не нужен - только интернет. Важный нюанс: факты приходят **на английском**. Нет сети - покажется локальный факт.")
+                        rowSep()
+                        FAQItem(icon: "desktopcomputer", tone: toneGreen,
+                                q: "Ollama (локально)",
+                                a: "Своя нейросеть прямо на вашем компьютере - приватно и бесплатно. Нужно: 1) установить Ollama с ollama.com; 2) один раз скачать модель командой `ollama pull llama3.2`; 3) чтобы в фоне работал `ollama serve`. Адрес `http://localhost:11434/api/generate` и модель `llama3.2` уже подставлены в настройках - при желании поменяйте. Каждый клик генерирует новый факт (пара секунд).")
+                        rowSep()
+                        FAQItem(icon: "sparkles", tone: toneIndigo,
+                                q: "Claude API",
+                                a: "Факты сочиняет Claude - это платный сервис Anthropic. Нужен ключ с console.anthropic.com: вставьте его в поле «Ключ Claude API» (хранится в Связке ключей, не открытым текстом). Каждый клик - один запрос (доли цента). Если ключ неверный, Clippy тихо покажет локальный факт - проверьте ключ.")
+                        rowSep()
+                        FAQItem(icon: "dot.radiowaves.up.forward", tone: toneRed,
+                                q: "RSS-лента",
+                                a: "Показывает заголовок свежей новости из любой ленты. Вставьте адрес ленты в поле - он должен начинаться с **https** (http заблокирован ради безопасности). Подойдёт любой обычный RSS.")
+                    }
+
+                    eyebrow("Свой персонаж", toneIndigo)
+                    settingsGroup {
+                        FAQItem(icon: "folder.fill", tone: toneIndigo,
+                                q: "Как добавить своего персонажа?",
+                                a: "«Персонаж → Библиотека → Папка» откроет папку `Agents`. Положите туда подпапку персонажа с файлами `agent.json` и `map.png` (формат ClippyJS / Microsoft Agent) и нажмите «Обновить» - персонаж появится в сетке.")
+                        rowSep()
+                        FAQItem(icon: "arrow.down.doc.fill", tone: toneTeal,
+                                q: "Взять готового из ClippyJS",
+                                a: "В комплекте есть импортёр: `python3 scripts/import-clippyjs.py <папка-персонажа> [Имя]`. Он соберёт `map.png` и `agent.json` в нужном виде.")
+                        rowSep()
+                        FAQItem(icon: "text.bubble.fill", tone: toneAmber,
+                                q: "Почему свой персонаж молчит?",
+                                a: "У каждого персонажа свои факты. Чтобы он их показывал, положите ему в папку файл `tips.json` - это либо простой список строк, либо словарь по категориям. Без этого файла персонаж ничего не говорит.")
+                    }
+
+                    eyebrow("Если ничего не появляется", toneRed)
+                    settingsGroup {
+                        FAQItem(icon: "checklist", tone: toneRed,
+                                q: "Проверьте по порядку",
+                                a: "1) включён ли тумблер «Включён»; 2) для Claude вставлен ли ключ, для RSS - адрес; 3) есть ли у своего персонажа `tips.json`; 4) не сняты ли у Clippy все категории. Если выбранный источник недоступен, но у персонажа есть локальные факты - покажется факт из них.")
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 18)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(P.ground)
+        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)                          // без полосы прокрутки
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            iconChip("questionmark", toneIndigo)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Частые вопросы").font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(P.ink)
+                Text("Настройка источников и персонажей").font(.system(size: 12.5)).foregroundStyle(P.ink2)
+            }
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 22).padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(colors: [toneIndigo.opacity(0.18), toneIndigo.opacity(0.03)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing))
+        .overlay(alignment: .bottom) { rowSep() }
+    }
+}
+
+// один вопрос-ответ: иконка-чип + жирный вопрос + markdown-ответ
+private struct FAQItem: View {
+    let icon: String
+    let tone: Color
+    let q: String
+    let a: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            iconChip(icon, tone)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(q).font(.system(size: 14, weight: .semibold)).foregroundStyle(P.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(.init(a)).font(.system(size: 12.5)).foregroundStyle(P.ink2)
+                    .fixedSize(horizontal: false, vertical: true).lineSpacing(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 13)
     }
 }

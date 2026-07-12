@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     private var bubblePanel: NSPanel?                 // облачко с фактом у дока
     private var hideWork: DispatchWorkItem?
     private var settingsWindow: NSWindow?
+    private var faqWindow: NSWindow?                  // окно «Частые вопросы»
     private var screenOff = false                    // экран заблокирован или дисплей спит
 
     var appVersion: String {
@@ -109,14 +110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         }
     }
 
-    // левый клик по иконке в доке: показать факт, но если открыто «настоящее» окно
-    // (настройки/О программе) - пусть система его поднимет, факт не показываем.
-    // облачко (nonactivating-панель, не canBecomeKey) за окно не считаем
+    // левый клик по иконке в доке: всегда показываем факт у иконки, даже если открыто
+    // окно настроек/FAQ/О программе. система при этом всё равно поднимет свои окна
+    // (return true), а облачко - nonactivating-панель поверх всего
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        let hasRealWindow = NSApp.windows.contains {
-            $0.isVisible && $0 !== bubblePanel && $0.canBecomeKey
-        }
-        if !hasRealWindow { showFact() }
+        showFact()
         return true
     }
 
@@ -298,9 +296,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
-    // окно настроек закрыли: отпустить ссылку, иначе граф окна держит delegate (retain-цикл)
+    // окно «Частые вопросы»: гайды по настройке источников и добавлению персонажей
+    func showFAQ() {
+        if faqWindow == nil {
+            let hosting = NSHostingController(rootView: FAQView())
+            hosting.sizingOptions = []                 // не навязывать окну размер контента
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: settingsWidth, height: settingsHeight),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered, defer: false)
+            w.contentViewController = hosting
+            w.setContentSize(NSSize(width: settingsWidth, height: settingsHeight))
+            w.minSize = NSSize(width: 380, height: 420)
+            w.title = "Частые вопросы"
+            w.isReleasedWhenClosed = false
+            w.delegate = self          // на закрытие отпускаем окно - разрыв retain-цикла
+            w.center()
+            w.setFrameAutosaveName("ClippyFAQWindow")   // запоминаем размер и позицию
+            faqWindow = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        faqWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    // окно закрыли: отпустить ссылку, иначе граф окна держит delegate (retain-цикл)
     func windowWillClose(_ notification: Notification) {
-        if (notification.object as? NSWindow) === settingsWindow { settingsWindow = nil }
+        let w = notification.object as? NSWindow
+        if w === settingsWindow { settingsWindow = nil }
+        if w === faqWindow { faqWindow = nil }
     }
 
     // MARK: - персонаж в доке
