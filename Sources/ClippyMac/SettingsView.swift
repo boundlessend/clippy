@@ -222,12 +222,13 @@ struct SettingsRootView: View {
     private var categoryChips: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("КАТЕГОРИИ").font(.system(size: 11, weight: .heavy)).tracking(0.7).foregroundStyle(P.ink3)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 8)],
-                      alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                 ForEach(AppSettings.tipCategories) { cat in
                     let on = settings.enabledCategories.contains(cat.key)
                     Text(cat.title)
                         .font(.system(size: 12.5, weight: .medium))
+                        .lineLimit(1)                        // без переноса - высота баблов одинаковая
+                        .minimumScaleFactor(0.8)             // узкая колонка: текст ужимается, а не обрезается
                         .foregroundStyle(on ? P.accentStrong : P.ink2)
                         .padding(.horizontal, 13).padding(.vertical, 6)
                         .frame(maxWidth: .infinity)
