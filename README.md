@@ -1,15 +1,11 @@
 <p align="center">
-  <img src="assets/AppIcon.png" alt="Clippy app icon" width="128">
+  <img src="assets/AppIcon.png" alt="иконка Clippy" width="128">
 </p>
 
 <h1 align="center">Clippy</h1>
 
 <p align="center">
-  <strong>Language:</strong> EN | <a href="README.ru.md">RU</a>
-</p>
-
-<p align="center">
-  <strong>the legendary Office paperclip, reborn on macOS</strong>
+  <strong>легендарный скрепыш из Office, возрождённый на macOS</strong>
 </p>
 
 <p align="center">
@@ -19,79 +15,79 @@
   <img alt="license" src="https://img.shields.io/badge/license-BSD--3--Clause-2563eb">
 </p>
 
-`Clippy` is a small macOS app that brings back the legendary assistant. Your character lives in the Dock as an animated icon; left-click it and a fact pops up in a speech bubble right next to it. Native Swift, zero dependencies.
+`Clippy` - небольшое приложение для macOS, которое возрождает легендарного скрепыша. Персонаж живёт в доке анимированной иконкой; левый клик по нему - и рядом всплывает факт в речевом баллоне. Нативный Swift, ноль зависимостей.
 
-## Features
+## Возможности
 
-- **animated Dock icon** - the app always lives in the Dock, and your chosen character animates there with a smooth idle loop that rests between bursts and occasionally throws in a spontaneous gesture.
-- **a fact on click** - left-click the Dock icon and a fresh tip appears in a speech bubble right next to the icon.
-- **Dock-aware bubble** - the bubble grows in height to fit the text (fixed width), sits next to the icon (following the cursor on the icon), and its tail points at the Dock, wherever the Dock is (bottom / left / right).
-- **Dock menu** - right-click the Dock icon: Show a fact / Show a gesture / Gestures (pick a specific one) / Character (pick one) / Random character / Settings… / About.
-- **feed files** - drag a file onto the Dock icon and the character reacts; the first time it asks whether fed files should go to the Trash (changeable in Settings).
-- **battery-friendly** - the idle animation rests between bursts and stops when the screen is locked or the display sleeps; an optional toggle also pauses it in Low Power Mode.
-- **characters** - Clippy plus five more in the box (Merlin, Genie, Bonzi, Links, Rover), and any custom character dropped into the `Agents` folder (a subfolder with `agent.json` + `map.png`); switch in Settings, shuffle from the Dock menu, or randomize on every launch. Multi-layer sprites are composited, so full Microsoft Agent characters render correctly.
-- **per-character facts** - each character shows its own facts. Clippy ships with ~500 lines in his own voice; a custom character shows facts only if you add its own `tips.json`, otherwise nothing pops up.
-- **content sources** - besides local facts, Ollama / Claude / RSS / Wikipedia "On this day" providers with an automatic fallback to local.
-- **sound** - the original animation voices (off by default).
-- **autostart** - at login (macOS Login Items via `SMAppService`).
-- **about** - a panel with the app version.
+- **анимированная иконка в доке** - приложение всегда в доке, и выбранный персонаж анимируется там плавной петлёй «туда-сюда», которая отдыхает между всплесками и иногда сама показывает жест.
+- **факт по клику** - левый клик по иконке в доке показывает новый факт в облачке прямо у иконки.
+- **облачко с учётом дока** - баллон растёт в высоту под длину текста (ширина фиксированная), встаёт у иконки (по курсору на иконке), а хвостик смотрит в сторону дока, где бы док ни стоял (внизу / слева / справа).
+- **меню дока** - правый клик по иконке: Показать факт / Показать жест / Жесты (выбрать конкретный) / Персонаж (выбрать) / Случайный персонаж / Настройки… / О программе.
+- **кормление файлами** - перетащите файл на иконку в доке, и персонаж отреагирует; при первом кормлении спросит, отправлять ли файлы в Корзину (меняется в настройках).
+- **бережёт батарею** - idle-анимация отдыхает между всплесками и замирает при блокировке экрана или сне дисплея; опциональный тумблер также ставит паузу в режиме энергосбережения.
+- **персонажи** - Clippy и ещё пятеро в комплекте (Merlin, Genie, Bonzi, Links, Rover), плюс любой свой персонаж из папки `Agents` (подпапка с `agent.json` + `map.png`); переключение в настройках, перебор из меню дока или случайный при запуске. Многослойные спрайты композитятся, поэтому полноценные персонажи Microsoft Agent рисуются правильно.
+- **факты по персонажу** - у каждого персонажа свои факты. У Clippy - ~500 реплик в его характере; свой персонаж показывает факты, только если положить ему `tips.json`, иначе ничего не всплывает.
+- **источники контента** - кроме локальных фактов - провайдеры Ollama / Claude / RSS / Википедия «В этот день» с автоматическим фолбэком на локальный.
+- **звук** - оригинальная озвучка анимаций (по умолчанию выключена).
+- **автозапуск** - при входе в систему (объекты входа macOS через `SMAppService`).
+- **о программе** - панель с версией приложения.
 
-## Installation
+## Установка
 
-### from a built .dmg
+### из готового .dmg
 
-Build the image and drag `ClippyMac.app` to `Applications`:
+Соберите образ и перетащите `ClippyMac.app` в `Applications`:
 
 ```bash
 ./scripts/build-dmg.sh
 open build/ClippyMac.dmg
 ```
 
-On the first launch of an unsigned app: right-click the `.app` and choose "Open".
+При первом запуске незаверенного приложения: правый клик по `.app` и «Открыть».
 
-### from source
+### из исходников
 
 ```bash
 swift run
 ```
 
-Requires macOS 13+ and the Swift toolchain / Xcode.
+Требуется macOS 13+ и Swift toolchain / Xcode.
 
-## Content sources
+## Источники контента
 
-Pick the source in Settings. Provider fields live there too (the Claude key is stored in the Keychain, not in plain text).
+Источник выбирается в настройках, там же поля провайдеров (ключ Claude хранится в Keychain, а не открытым текстом).
 
-- **Local tips** - built in: ~500 Clippy lines, toggle categories in Settings.
-- **Ollama** - a running `ollama serve` and a model; set the address and model in Settings (or via `CLIPPY_OLLAMA_URL` / `CLIPPY_OLLAMA_MODEL`).
-- **Claude** - paste the API key in Settings (or `ANTHROPIC_API_KEY`).
-- **RSS** - the feed URL in Settings (or `CLIPPY_RSS_URL`).
-- **Wikipedia "On this day"** - built in: a historical event from today's date (Russian Wikipedia), no key.
+- **Локальные советы** - из коробки: ~500 реплик скрепыша, категории переключаются в настройках.
+- **Ollama** - запущенный `ollama serve` и модель; адрес и модель задаются в настройках (или через `CLIPPY_OLLAMA_URL` / `CLIPPY_OLLAMA_MODEL`).
+- **Claude** - ключ API вставляется в настройках (или `ANTHROPIC_API_KEY`).
+- **RSS** - адрес ленты в настройках (или `CLIPPY_RSS_URL`).
+- **Википедия «В этот день»** - из коробки: историческое событие на сегодняшнюю дату (русская Википедия), без ключа.
 
-## Development
+## Разработка
 
-Verify the logic without a GUI (sprite parsing, frame cropping, branching, sounds, bubble placement, content):
+Проверка логики без GUI (парсинг спрайтов, кроп кадров, branching, звуки, позиция облачка, контент):
 
 ```bash
 CLIPPY_SELFTEST=1 swift run
 ```
 
-> Note: `swift run` launches an unbundled binary with no Info.plist, so App Transport Security blocks Ollama over `http://localhost`. Claude / RSS / Wikipedia (https) work either way; to exercise Ollama, build the app first (`./scripts/build-dmg.sh`) and run the `.app`.
+> Примечание: `swift run` запускает голый бинарь без Info.plist, поэтому App Transport Security режет Ollama по `http://localhost`. Claude / RSS / Википедия (https) работают в любом случае; чтобы погонять Ollama, соберите приложение (`./scripts/build-dmg.sh`) и запустите `.app`.
 
-Import a [ClippyJS](https://github.com/smore-inc/clippy.js) character (its `map.png` + `agent.js` + optional `sounds-mp3.js`) into the `Agents` folder, then pick it in Settings:
+Импорт персонажа [ClippyJS](https://github.com/smore-inc/clippy.js) (его `map.png` + `agent.js` + опц. `sounds-mp3.js`) в папку `Agents`, затем выбор в настройках:
 
 ```bash
-python3 scripts/import-clippyjs.py <clippyjs-character-folder> [Name]
+python3 scripts/import-clippyjs.py <папка-персонажа-clippyjs> [Имя]
 ```
 
-Plan and backlog live in [PLAN.md](PLAN.md).
+План и бэклог - в [PLAN.md](PLAN.md).
 
 ## Credits & assets
 
-- sprites, animation timings, and sounds come from [ClippyJS](https://github.com/smore-inc/clippy.js) (MIT), which in turn come from **Microsoft Agent** (the "Clippit" character)
-- the desktop-agent idea and some features are inspired by [Cosmo/Clippy](https://github.com/Cosmo/Clippy)
+- спрайты, тайминги анимаций и звуки взяты из [ClippyJS](https://github.com/smore-inc/clippy.js) (MIT), которые в свою очередь происходят из **Microsoft Agent** (персонаж «Clippit»)
+- идея desktop-агента и часть фич вдохновлены [Cosmo/Clippy](https://github.com/Cosmo/Clippy)
 
-Sprites and sounds remain the intellectual property of their owners and are included for personal, non-commercial use. The project's BSD 3-Clause license covers the source code only.
+Спрайты и звуки остаются интеллектуальной собственностью правообладателей и включены для личного некоммерческого использования. Лицензия проекта BSD 3-Clause покрывает только исходный код.
 
-## License
+## Лицензия
 
-[BSD 3-Clause](LICENSE) for the source code. For assets, see the section above.
+[BSD 3-Clause](LICENSE) - на исходный код. По ассетам см. раздел выше.
