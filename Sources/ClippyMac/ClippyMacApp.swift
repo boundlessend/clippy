@@ -208,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         m.addItem(.separator())
 
         m.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: "")
-        m.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
+        m.addItem(withTitle: "О программе Clippy Mac", action: #selector(miAbout), keyEquivalent: "")
         m.items.forEach { $0.target = self }      // топ-уровень; пункты подменю уже с target
         return m
     }
@@ -265,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         main.addItem(appItem)
         let appMenu = NSMenu()
         appItem.submenu = appMenu
-        appMenu.addItem(withTitle: "О программе Clippy", action: #selector(miAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: "О программе Clippy Mac", action: #selector(miAbout), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
@@ -302,7 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     @objc private func miAbout() {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Clippy",
+            .applicationName: "Clippy Mac",
             .applicationVersion: appVersion,
             .credits: NSAttributedString(
                 string: "ваш скрепыш в доке",

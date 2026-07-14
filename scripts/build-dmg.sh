@@ -26,8 +26,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>ClippyMac</string>
-  <key>CFBundleDisplayName</key><string>Clippy</string>
+  <key>CFBundleName</key><string>Clippy Mac</string>
+  <key>CFBundleDisplayName</key><string>Clippy Mac</string>
   <key>CFBundleExecutable</key><string>ClippyMac</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIdentifier</key><string>com.clippymac.app</string>

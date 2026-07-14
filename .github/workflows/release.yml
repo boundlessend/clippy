@@ -28,5 +28,5 @@ jobs:
             -f tag_name="$GITHUB_REF_NAME" --jq .body >> /tmp/notes.md 2>/dev/null || true
           gh release create "$GITHUB_REF_NAME" \
             build/ClippyMac.dmg \
-            --title "Clippy $GITHUB_REF_NAME" \
+            --title "Clippy Mac $GITHUB_REF_NAME" \
             --notes-file /tmp/notes.md

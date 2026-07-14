@@ -1,21 +1,21 @@
 <p align="center">
-  <img src="assets/AppIcon.png" alt="иконка Clippy" width="128">
+  <img src="assets/AppIcon.png" alt="иконка Clippy Mac" width="128">
 </p>
 
-<h1 align="center">Clippy</h1>
+<h1 align="center">Clippy Mac</h1>
 
 <p align="center">
   <strong>похоже, вам нужен скрепыш. он уже в доке</strong>
 </p>
 
 <p align="center">
-  <img alt="CI" src="https://github.com/boundlessend/clippy-mac/actions/workflows/ci.yml/badge.svg">
+  <img alt="CI" src="https://github.com/boundlessend/clippy/actions/workflows/ci.yml/badge.svg">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-13%2B-111827">
   <img alt="Swift" src="https://img.shields.io/badge/Swift-5.9-f05138">
   <img alt="license" src="https://img.shields.io/badge/license-BSD--3--Clause-2563eb">
 </p>
 
-`Clippy` - небольшое приложение для macOS, которое возрождает легендарного скрепыша. Персонаж живёт в доке анимированной иконкой; левый клик по нему - и рядом всплывает факт в речевом баллоне. Нативный Swift, ноль зависимостей.
+`Clippy Mac` - небольшое приложение для macOS, которое возрождает легендарного скрепыша. Персонаж живёт в доке анимированной иконкой; левый клик по нему - и рядом всплывает факт в речевом баллоне. Нативный Swift, ноль зависимостей.
 
 ## Возможности
 
@@ -36,7 +36,7 @@
 
 ### из релиза (готовый .dmg)
 
-1. Скачайте `ClippyMac.dmg` со страницы [Releases](https://github.com/boundlessend/clippy-mac/releases).
+1. Скачайте `ClippyMac.dmg` со страницы [Releases](https://github.com/boundlessend/clippy/releases).
 2. Откройте образ и перетащите `ClippyMac.app` в `Applications`.
 3. Приложение не подписано Developer ID, поэтому macOS блокирует первый запуск. Обход (один раз, любой способ): **Системные настройки -> Конфиденциальность и безопасность -> «Открыть всё равно»** (кнопка появляется после первой попытки запуска); либо в Терминале `xattr -dr com.apple.quarantine /Applications/ClippyMac.app`; на старых macOS также работает правый клик по `.app` -> «Открыть».
 
