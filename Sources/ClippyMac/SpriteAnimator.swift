@@ -161,7 +161,10 @@ final class SpriteAnimator {
         if layers.count < points.count {                 // кадр чужого агента вышел за спрайтшит
             NSLog("clippy: кадр за границами спрайтшита - слой пропущен")
         }
-        imageView.image = composite(layers)
+        // пустой кадр (images=nil - хвост Hide, старт Greeting/Show) не гасим: иконка в доке
+        // всегда обязана что-то показывать, иначе замерев на нём персонаж пропадает в пустоту
+        guard let image = composite(layers) else { return }
+        imageView.image = image
         onRender?()
     }
 
