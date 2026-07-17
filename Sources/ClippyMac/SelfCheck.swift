@@ -26,7 +26,7 @@ func runSelfCheckIfRequested() {
             }
         }
         // контент: tips.json грузится, непустой, и провайдер инициализируется
-        guard let turl = Bundle.module.url(forResource: "tips", withExtension: "json") else {
+        guard let turl = resourceBundle.url(forResource: "tips", withExtension: "json") else {
             fatalError("tips.json missing")
         }
         let byCat = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: turl))
@@ -112,7 +112,7 @@ func runSelfCheckIfRequested() {
         // звуки: каждый ключ из кадров есть в бандле
         for key in soundKeys {
             precondition(
-                Bundle.module.url(forResource: key, withExtension: "mp3") != nil,
+                resourceBundle.url(forResource: key, withExtension: "mp3") != nil,
                 "missing sound \(key).mp3")
         }
 

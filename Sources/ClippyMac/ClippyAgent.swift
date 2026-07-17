@@ -2,6 +2,22 @@ import Foundation
 import CoreGraphics
 import ImageIO
 
+// ресурс-бандл SwiftPM. Bundle.module ищет его по Bundle.main.bundleURL (у .app - корень .app)
+// и падает fatalError, когда он лежит в стандартном Contents/Resources. резолвим сами:
+// Contents/Resources у .app либо папка бинарника у dev-сборки (swift run). .module - последний фолбэк
+let resourceBundle: Bundle = {
+    let name = "ClippyMac_ClippyMac.bundle"
+    let fm = FileManager.default
+    let roots = [Bundle.main.resourceURL,
+                 Bundle.main.executableURL?.deletingLastPathComponent(),
+                 Bundle.main.bundleURL].compactMap { $0 }
+    for root in roots {
+        let url = root.appendingPathComponent(name)
+        if fm.fileExists(atPath: url.path), let b = Bundle(url: url) { return b }
+    }
+    return .module
+}()
+
 // модель ClippyJS agent.js (сконвертирован в clippy_agent.json).
 // overlayCount=1, поэтому каждый кадр - максимум один слой [x,y] в спрайтшите.
 
@@ -40,7 +56,7 @@ func loadClippyAgent(from directory: URL?) throws -> ClippyAgent {
     let url: URL
     if let directory {
         url = directory.appendingPathComponent("agent.json")
-    } else if let bundled = Bundle.module.url(forResource: "clippy_agent", withExtension: "json") {
+    } else if let bundled = resourceBundle.url(forResource: "clippy_agent", withExtension: "json") {
         url = bundled
     } else {
         throw AssetError.missing("clippy_agent.json")
@@ -57,7 +73,7 @@ func loadSpriteSheet(from directory: URL?) throws -> CGImage {
     let url: URL
     if let directory {
         url = directory.appendingPathComponent("map.png")
-    } else if let bundled = Bundle.module.url(forResource: "clippy_map", withExtension: "png") {
+    } else if let bundled = resourceBundle.url(forResource: "clippy_map", withExtension: "png") {
         url = bundled
     } else {
         throw AssetError.missing("clippy_map.png")

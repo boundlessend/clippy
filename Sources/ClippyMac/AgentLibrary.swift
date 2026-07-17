@@ -26,7 +26,7 @@ func agentsFolder() -> URL {
 func discoverAgents() -> [AgentRef] {
     var seen = Set([builtInAgentName])
     var refs = [AgentRef(name: builtInAgentName, directory: nil)]
-    let bundled = Bundle.module.url(forResource: "BundledAgents", withExtension: nil)
+    let bundled = resourceBundle.url(forResource: "BundledAgents", withExtension: nil)
         .map { validAgents(in: $0) } ?? []
     for ref in validAgents(in: agentsFolder()) + bundled where seen.insert(ref.name).inserted {
         refs.append(ref)

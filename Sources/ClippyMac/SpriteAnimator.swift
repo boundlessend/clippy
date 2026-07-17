@@ -190,7 +190,7 @@ final class SpriteAnimator {
     private func soundPlayer(_ key: String) -> AVAudioPlayer? {
         if let cached = players[key] { return cached }
         let url = soundsBase?.appendingPathComponent("\(key).mp3")
-            ?? Bundle.module.url(forResource: key, withExtension: "mp3")
+            ?? resourceBundle.url(forResource: key, withExtension: "mp3")
         guard let url, let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
         player.prepareToPlay()
         players[key] = player

@@ -11,7 +11,7 @@ struct LocalJSONProvider: TipProvider {
     private let tips: [String]
 
     init(enabled: Set<String>) throws {
-        guard let url = Bundle.module.url(forResource: "tips", withExtension: "json") else {
+        guard let url = resourceBundle.url(forResource: "tips", withExtension: "json") else {
             throw AssetError.missing("tips.json")
         }
         let byCategory = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: url))
