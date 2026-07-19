@@ -44,18 +44,6 @@ enum PoolStore {
 
     static func count(character: String) -> Int { load(character: character).count }
 
-    // удалить пулы персонажей, которых больше нет в библиотеке (осиротевшие файлы)
-    static func prune(keeping names: Set<String>) {
-        guard let dir = try? poolsDir(),
-              let files = try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: nil) else { return }
-        let keep = Set(names.map(sanitize))
-        for f in files where f.pathExtension == "json"
-            && !keep.contains(f.deletingPathExtension().lastPathComponent) {
-            try? FileManager.default.removeItem(at: f)
-        }
-    }
-
     // безопасное имя файла: убираем разделители пути и управляющие, юникод-буквы оставляем
     static func sanitize(_ name: String) -> String {
         let bad = CharacterSet(charactersIn: "/\\:.").union(.controlCharacters)

@@ -48,7 +48,9 @@ func batchFactPrompt(style: String, count: Int) -> String {
 // распарсить многострочный ответ модели в отдельные факты:
 // снять ведущую нумерацию/маркеры и кавычки, обрезать пробелы, выкинуть пустые.
 // нумерация - максимум две цифры: факт, начинающийся с года («1984. …»), не обрезаем.
-// строка без маркера и с маленькой буквы - перенесённое продолжение предыдущего факта
+// строка без маркера и с маленькой буквы - перенесённое продолжение предыдущего факта,
+// но только пока предыдущий не закончился предложением: факт, начатый с латиницы
+// («iPhone представили…»), к завершённому предыдущему не приклеиваем
 func parseFactLines(_ raw: String) -> [String] {
     var out: [String] = []
     for line in raw.split(whereSeparator: \.isNewline) {
@@ -58,7 +60,8 @@ func parseFactLines(_ raw: String) -> [String] {
         let hadMarker = unmarked != trimmed
         let s = unmarked.trimmingCharacters(in: CharacterSet(charactersIn: "\"'«»").union(.whitespaces))
         guard !s.isEmpty else { continue }
-        if !hadMarker, s.first?.isLowercase == true, !out.isEmpty {
+        let prevEnded = out.last?.last.map { ".!?…".contains($0) } ?? true
+        if !hadMarker, s.first?.isLowercase == true, !prevEnded {
             out[out.count - 1] += " " + s
         } else {
             out.append(s)
@@ -91,6 +94,22 @@ let defaultClaudeModel = "claude-haiku-4-5-20251001"
 
 // эфемерная сессия для провайдеров: без дискового кэша запросов/ответов
 let tipSession = URLSession(configuration: .ephemeral)
+
+// потолок тела ответа: кривая лента или эндпоинт не должны съедать память гигабайтами
+let maxResponseBytes = 5 * 1024 * 1024
+
+// data(for:) с лимитом размера: читаем поток и обрываем, как только превышен потолок
+func fetchLimited(_ req: URLRequest) async throws -> (Data, URLResponse) {
+    let (bytes, resp) = try await tipSession.bytes(for: req)
+    var data = Data()
+    for try await byte in bytes {
+        data.append(byte)
+        if data.count > maxResponseBytes {
+            throw AssetError.missing("ответ больше \(maxResponseBytes / 1024 / 1024) МБ")
+        }
+    }
+    return (data, resp)
+}
 
 // проверка HTTP-ответа. тело ответа не логируем: оно контролируется эндпоинтом и
 // может утечь в системный лог, поэтому храним только статус
@@ -142,7 +161,7 @@ struct OllamaProvider: TipProvider, LLMProvider {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: Any] = ["model": model, "prompt": prompt, "stream": false]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, resp) = try await tipSession.data(for: req)
+            let (data, resp) = try await fetchLimited(req)
             try ensureOK(resp)
             let decoded = try JSONDecoder().decode(OllamaResponse.self, from: data)
             let text = decoded.response.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -190,16 +209,30 @@ struct ClaudeProvider: TipProvider, LLMProvider {
                 "messages": [["role": "user", "content": prompt]],
             ]
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (data, resp) = try await tipSession.data(for: req)
+            let (data, resp) = try await fetchLimited(req)
             try ensureOK(resp)
             let decoded = try JSONDecoder().decode(ClaudeResponse.self, from: data)
-            let text = (decoded.content.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            var text = (decoded.content.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if decoded.stopReason == "max_tokens" {
+                // ответ обрезан посреди строки - обрывок не пускаем в пул/облачко:
+                // у батча отбрасываем незавершённую последнюю строку, одиночный ответ - ошибка
+                let lines = text.split(whereSeparator: \.isNewline).dropLast()
+                guard !lines.isEmpty else { throw AssetError.missing("ответ Claude обрезан по max_tokens") }
+                text = lines.joined(separator: "\n")
+            }
             guard !text.isEmpty else { throw AssetError.missing("Claude вернул пустой ответ") }
             return text
         }
     }
 }
-private struct ClaudeResponse: Decodable { let content: [Block] }
+private struct ClaudeResponse: Decodable {
+    let content: [Block]
+    let stopReason: String?
+    enum CodingKeys: String, CodingKey {
+        case content
+        case stopReason = "stop_reason"
+    }
+}
 private struct Block: Decodable { let text: String }
 
 // MARK: - «В этот день» из русской Википедии (события на сегодняшнюю дату, без ключа)
@@ -226,7 +259,7 @@ struct OnThisDayProvider: TipProvider {
             var req = URLRequest(url: url)
             req.timeoutInterval = networkTimeout
             req.setValue("ClippyMac (macOS dock assistant)", forHTTPHeaderField: "User-Agent")
-            let (data, resp) = try await tipSession.data(for: req)
+            let (data, resp) = try await fetchLimited(req)
             try ensureOK(resp)
             return try JSONDecoder().decode(OnThisDayResponse.self, from: data).events
         }
@@ -262,7 +295,7 @@ struct RSSProvider: TipProvider {
         try await withRetries {
             var req = URLRequest(url: feedURL)
             req.timeoutInterval = networkTimeout
-            let (data, resp) = try await tipSession.data(for: req)
+            let (data, resp) = try await fetchLimited(req)
             try ensureOK(resp)
             // случайный из свежих записей: иначе каждый клик показывал бы один и тот же
             // первый заголовок, пока лента не обновится

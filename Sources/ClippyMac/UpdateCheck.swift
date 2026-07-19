@@ -44,7 +44,7 @@ private struct LatestRelease: Decodable {
 
 @MainActor
 enum UpdateCheck {
-    static let interval: TimeInterval = 24 * 60 * 60
+    private static let interval: TimeInterval = 24 * 60 * 60
     private static let lastCheckKey = "lastUpdateCheck"
     private static let skippedKey = "skippedUpdateVersion"
 
@@ -74,14 +74,19 @@ enum UpdateCheck {
         }
     }
 
+    private static var manualCheckInFlight = false   // двойной клик не должен давать два запроса и два алерта
+
     // ручная проверка: всегда отвечает алертом (новая версия / актуально / ошибка)
     static func checkManually() {
+        guard !manualCheckInFlight else { return }
         let local = currentAppVersion()
         guard !versionComponents(local).isEmpty else {
             info("Dev-сборка", "Запуск из исходников: сравнивать версию не с чем.")
             return
         }
+        manualCheckInFlight = true
         Task { @MainActor in
+            defer { manualCheckInFlight = false }
             do {
                 let release = try await fetchLatest()
                 UserDefaults.standard.set(Date(), forKey: lastCheckKey)
@@ -100,12 +105,16 @@ enum UpdateCheck {
         var req = URLRequest(url: latestReleaseURL)
         req.timeoutInterval = networkTimeout
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, resp) = try await tipSession.data(for: req)
+        let (data, resp) = try await fetchLimited(req)
         try ensureOK(resp)
         let release = try JSONDecoder().decode(LatestRelease.self, from: data)
         let version = release.tagName.hasPrefix("v")
             ? String(release.tagName.dropFirst()) : release.tagName
-        return (version, URL(string: release.htmlURL) ?? releasesPageURL)
+        // открываем только страницу на github.com: html_url приходит из ответа API,
+        // произвольную схему/хост в NSWorkspace.open не передаём
+        let url = URL(string: release.htmlURL)
+            .flatMap { $0.scheme == "https" && $0.host == "github.com" ? $0 : nil }
+        return (version, url ?? releasesPageURL)
     }
 
     private static func presentUpdateAlert(_ release: (version: String, url: URL)) {
