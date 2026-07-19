@@ -1,5 +1,5 @@
 #!/bin/bash
-# собирает release-бинарь, упаковывает в ClippyMac.app и создаёт нарядный .dmg-установщик
+# собирает release-бинарь, упаковывает в «Clippy Mac.app» и создаёт нарядный .dmg-установщик
 # (create-dmg: окно с иконкой приложения и стрелкой на Applications; фон - assets/dmg-background.png).
 # ad-hoc подпись, без Developer ID - при первом запуске: правый клик -> «Открыть».
 set -euo pipefail
@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 
 VERSION="${VERSION:-1.0.0}"         # версия (semver); в CI берётся из git-тега (release.yml)
 
-APP="build/ClippyMac.app"
-DMG="build/ClippyMac.dmg"
+APP="build/Clippy Mac.app"          # имя бандла с пробелом - красивее в Finder/установщике
+DMG="build/ClippyMac.dmg"           # имя файла загрузки оставляем без пробела
 BIN=".build/release/ClippyMac"
 RESBUNDLE=".build/release/ClippyMac_ClippyMac.bundle"
 
@@ -99,8 +99,8 @@ if [ -n "${CREATE_DMG:-}" ] && [ -x "$CREATE_DMG" ]; then
     --window-pos 200 120 \
     --window-size 540 400 \
     --icon-size 128 \
-    --icon "ClippyMac.app" 150 205 \
-    --hide-extension "ClippyMac.app" \
+    --icon "Clippy Mac.app" 150 205 \
+    --hide-extension "Clippy Mac.app" \
     --app-drop-link 390 205 \
     --no-internet-enable \
     --hdiutil-retries 5 \
