@@ -15,6 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Self-check (no GUI)
+        run: CLIPPY_SELFTEST=1 swift run   # релиз не пакуем, пока логика/ассеты не проверены
+
       - name: Install create-dmg
         run: brew install create-dmg   # нарядный установщик (окно + стрелка на Applications)
 

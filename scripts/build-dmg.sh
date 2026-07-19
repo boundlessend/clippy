@@ -5,7 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.0.0}"         # версия (semver); в CI берётся из git-тега (release.yml)
+# версия (semver): env VERSION (так делает CI из git-тега, см. release.yml),
+# иначе последний тег репозитория - локальная сборка не шьёт устаревший дефолт
+VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
+VERSION="${VERSION:-0.0.0}"         # дерево вовсе без тегов (свежий клон без истории)
 
 APP="build/Clippy Mac.app"          # имя бандла с пробелом - красивее в Finder/установщике
 DMG="build/ClippyMac.dmg"           # имя файла загрузки оставляем без пробела
