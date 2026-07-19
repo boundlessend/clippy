@@ -34,8 +34,12 @@ enum PoolStore {
         try JSONEncoder().encode(capped).write(to: url(character: character), options: .atomic)
     }
 
+    // удалить файл пула; отсутствие файла - не ошибка (пул и так пуст),
+    // а вот реальный сбой удаления пробрасываем, не глотаем
     static func clear(character: String) throws {
-        try FileManager.default.removeItem(at: url(character: character))
+        let u = try url(character: character)
+        guard FileManager.default.fileExists(atPath: u.path) else { return }
+        try FileManager.default.removeItem(at: u)
     }
 
     static func count(character: String) -> Int { load(character: character).count }

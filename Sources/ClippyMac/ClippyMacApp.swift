@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     @Published private(set) var agentAvatars: [String: NSImage] = [:]   // имя -> аватар (кадр RestPose)
     @Published var isGeneratingPool = false                        // идёт генерация пачки фактов
     @Published private(set) var poolCount = 0                      // размер пула активного персонажа
+    @Published private(set) var loginItemOn = false                // observable-зеркало статуса SMAppService
     private var dockView: NSImageView?                // куда рисует аниматор (иконка в доке)
     private var animator: SpriteAnimator?
     private var bubblePanel: NSPanel?                 // облачко с фактом у дока
@@ -43,9 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     private var faqWindow: NSWindow?                  // окно «Частые вопросы»
     private var screenOff = false                    // экран заблокирован или дисплей спит
 
-    var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-    }
+    var appVersion: String { currentAppVersion() }
 
     private var gestureInFlight = false               // играет одноразовый жест: idle его не прервёт
     private static let gestureMaxSteps = 60           // потолок кадров жеста (зацикленные не зависнут)
@@ -67,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         setupDock()                               // анимированный персонаж в доке
         setupPowerNotifications()                 // пауза анимации при блокировке/сне экрана
         migrateLegacyLoginItemIfNeeded()          // перенос автозапуска со старого LaunchAgent на SMAppService
+        UpdateCheck.startAutoChecks()             // тихая проверка новых релизов раз в сутки
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -235,9 +235,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         refreshPoolCount()
     }
 
+    // актуализировать observable-состояние тумблера автозапуска: сам SMAppService не
+    // observable, и без этого тумблер застревал в старом положении после ошибки или
+    // изменения в Системных настройках
+    func refreshLoginItem() { loginItemOn = isLoginItemEnabled() }
+
     // тумблер автозапуска с обратной связью: ошибка -> alert (в т.ч. dev-запуск без .app);
     // система ждёт подтверждения -> предлагаем открыть Системные настройки -> Объекты входа
     func applyLoginItem(_ enabled: Bool) {
+        defer { refreshLoginItem() }              // тумблер отражает фактический статус, в т.ч. после ошибки
         do {
             try setLoginItem(enabled)
         } catch {
@@ -266,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         let appMenu = NSMenu()
         appItem.submenu = appMenu
         appMenu.addItem(withTitle: "О программе Clippy Mac", action: #selector(miAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: "Проверить обновления…", action: #selector(miCheckUpdates), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Настройки…", action: #selector(miSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
@@ -278,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     @objc private func miGesture() { playRandomGesture() }
     @objc private func miSettings() { showSettings() }
     @objc private func miQuit() { NSApp.terminate(nil) }
+    @objc private func miCheckUpdates() { UpdateCheck.checkManually() }
 
     // случайный персонаж из меню дока (по возможности не текущий)
     @objc private func miRandomAgent() {
@@ -332,6 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // единое окно настроек: из дока и из меню приложения
     func showSettings() {
         refreshPoolCount()                         // счётчик пула актуален к открытию
+        refreshLoginItem()                         // и тумблер автозапуска тоже
         if settingsWindow == nil {
             settingsWindow = makePanelWindow(title: "Настройки Clippy", autosave: "ClippySettingsWindow",
                                              content: SettingsRootView(delegate: self))
@@ -448,17 +457,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         return "Пул фактов пуст - сгенерируйте их в настройках"
     }
 
+    private var factInFlight = false      // защита от серии кликов: один запрос за раз (LLM - платный/медленный)
+
     // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
     func showFact() {
-        guard AppSettings.shared.enabled else { return }
+        guard AppSettings.shared.enabled, !factInFlight else { return }
         // якорь фиксируем в момент клика (курсор потом уедет), показываем после загрузки факта
         let anchor = currentDockAnchor()
+        playRandomGesture()                             // мгновенная реакция: клик услышан, факт грузится
         if let hint = emptyPoolHint() {                 // пул выбран, но пуст - подсказать, не молчать
             presentBubble(hint, anchor: anchor)
-            playRandomGesture()
             return
         }
+        factInFlight = true
         Task { @MainActor in
+            defer { self.factInFlight = false }
             guard let tip = await self.fetchTip() else {
                 let s = AppSettings.shared
                 // единственный «тихий» случай, который стоит объяснить: Clippy + локальный источник
@@ -471,7 +484,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
                 return
             }
             self.presentBubble(tip, anchor: anchor)
-            self.playRandomGesture()                        // короткая реакция персонажа в доке
         }
     }
 
@@ -603,7 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
                 NSLog("clippy: генерация пула отменена")
             } catch {
                 NSLog("clippy: генерация пула не удалась: \(error)")
-                presentGenerationError(error)
+                presentErrorAlert("Не удалось сгенерировать факты", error)
             }
         }
     }
@@ -611,10 +623,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // отменить текущую генерацию (отменяет и сетевой запрос внутри)
     func cancelGeneration() { poolTask?.cancel() }
 
-    // ошибку генерации показываем sheet'ом на окне настроек, если оно открыто, иначе модально
-    private func presentGenerationError(_ error: Error) {
+    // ошибку показываем sheet'ом на окне настроек, если оно открыто, иначе модально
+    private func presentErrorAlert(_ title: String, _ error: Error) {
         let a = NSAlert()
-        a.messageText = "Не удалось сгенерировать факты"
+        a.messageText = title
         a.informativeText = "\(error)"
         if let w = settingsWindow, w.isVisible {
             a.beginSheetModal(for: w, completionHandler: nil)
@@ -625,7 +637,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // очистить пул активного персонажа (сгенерировать заново с нуля)
     func clearPool() {
-        try? PoolStore.clear(character: AppSettings.shared.activeAgent)
+        do { try PoolStore.clear(character: AppSettings.shared.activeAgent) }
+        catch {
+            NSLog("clippy: не удалось очистить пул: \(error)")
+            presentErrorAlert("Не удалось очистить пул", error)
+        }
         refreshPoolCount()
     }
 

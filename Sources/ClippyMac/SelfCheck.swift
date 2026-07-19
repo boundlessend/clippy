@@ -119,6 +119,12 @@ func runSelfCheckIfRequested() {
         // генерация пула: парсинг ответа модели, сборка промпта, обрезка RSS, имя файла пула
         let parsed = parseFactLines("1. Первый факт\n- Второй факт\n\n  \"Третий факт\"  \n")
         precondition(parsed == ["Первый факт", "Второй факт", "Третий факт"], "parseFactLines: \(parsed)")
+        precondition(parseFactLines("1984. Выпущен Macintosh") == ["1984. Выпущен Macintosh"],
+                     "год в начале факта - не нумерация списка")
+        precondition(parseFactLines("Начало факта,\nа это его продолжение")
+                     == ["Начало факта, а это его продолжение"], "перенос строки склеивается")
+        precondition(parseFactLines("1. факт раз\n2. факт два").count == 2,
+                     "нумерованные строки - отдельные факты, даже с маленькой буквы")
         precondition(assembleStylePrompt(persona: "Клиппи", constraints: "", maxLen: 100).contains("Клиппи"),
                      "style prompt must include persona")
         precondition(batchFactPrompt(style: "S", count: 5).contains("5"), "batch prompt must include count")
@@ -126,6 +132,28 @@ func runSelfCheckIfRequested() {
         precondition(truncateTitle("коротко", max: 100) == "коротко", "short title unchanged")
         precondition(orderedUnique(["a", "b", "a", "c"]) == ["a", "b", "c"], "orderedUnique keeps first order")
         precondition(PoolStore.sanitize("../evil/Клип:пи") == "___evil_Клип_пи", "pool name must strip path chars")
+
+        // RSS-парсер: заголовок ленты пропускаем, CDATA читаем, несколько записей собираем
+        let rssXML = """
+        <rss><channel><title>Лента</title>
+        <item><title><![CDATA[Заголовок в CDATA]]></title></item>
+        <item><title>Обычный заголовок</title></item>
+        </channel></rss>
+        """
+        let rssTitles = RSSTitles().parse(Data(rssXML.utf8))
+        precondition(rssTitles == ["Заголовок в CDATA", "Обычный заголовок"], "rss titles: \(rssTitles)")
+        let atomXML = """
+        <feed xmlns="http://www.w3.org/2005/Atom"><title>Фид</title>
+        <entry><title>Атом-заголовок</title></entry></feed>
+        """
+        precondition(RSSTitles().parse(Data(atomXML.utf8)) == ["Атом-заголовок"], "atom title")
+
+        // сравнение версий для проверки обновлений; dev-сборка несравнима
+        precondition(isNewerVersion("1.0.5", than: "1.0.4"), "1.0.5 > 1.0.4")
+        precondition(!isNewerVersion("1.0.4", than: "1.0.4"), "equal versions")
+        precondition(isNewerVersion("1.1", than: "1.0.9"), "1.1 > 1.0.9")
+        precondition(!isNewerVersion("1.0.9", than: "1.1"), "1.0.9 < 1.1")
+        precondition(!isNewerVersion("1.0.5", than: "dev"), "dev incomparable")
 
         print("selftest ok: \(agent.animations.count) animations, "
               + "\(cropped) frames cropped, sheet \(sheet.width)x\(sheet.height), "

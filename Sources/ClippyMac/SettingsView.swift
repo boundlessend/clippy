@@ -74,7 +74,7 @@ struct SettingsRootView: View {
                         rowSep()
                         SwitchRow(icon: "arrow.right.circle.fill", tone: toneGreen,
                                   title: "Запускать при входе", subtitle: nil,
-                                  isOn: Binding(get: { isLoginItemEnabled() },
+                                  isOn: Binding(get: { delegate.loginItemOn },
                                                 set: { delegate.applyLoginItem($0) }))
                     }
 
@@ -248,9 +248,12 @@ struct SettingsRootView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 14) {
             Text("Версия \(delegate.appVersion)").font(.system(size: 11.5)).foregroundStyle(P.ink3)
             Spacer()
+            Button("Проверить обновления") { UpdateCheck.checkManually() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12.5, weight: .medium)).foregroundStyle(P.ink2)
             Button("Выход") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.plain)
                 .font(.system(size: 12.5, weight: .medium)).foregroundStyle(P.ink2)
@@ -483,13 +486,17 @@ struct FAQView: View {
                         FAQItem(icon: "arrow.triangle.2.circlepath", tone: toneGreen,
                                 q: "Сменил источник, а факты как будто прежние?",
                                 a: "Если выбранный источник не ответил (нет интернета, не задан ключ или адрес), Clippy молча берёт локальный факт - чтобы облачко не было пустым. Ниже расписаны условия каждого источника.")
+                        rowSep()
+                        FAQItem(icon: "hand.point.up.left.fill", tone: toneTeal,
+                                q: "Почему Clippy в меню «Открыть в программе»?",
+                                a: "Чтобы персонажа можно было кормить, приложение объявляет системе, что принимает любые файлы. Побочный эффект: macOS показывает Clippy Mac в «Открыть в программе» у всех файлов. Выбор этого пункта равен перетаскиванию на иконку: файл будет «съеден» (и отправлен в Корзину, если включён такой режим).")
                     }
 
                     eyebrow("Источники фактов", toneTeal)
                     settingsGroup {
                         FAQItem(icon: "shippingbox.fill", tone: toneAmber,
                                 q: "Локальные советы",
-                                a: "Работают сразу, настраивать ничего не нужно: ~500 реплик Clippy. Чипами «Категории» можно оставить только интересные темы. Если снять все категории - Clippy честно скажет об этом в облачке.")
+                                a: "Работают сразу, настраивать ничего не нужно: ~700 реплик Clippy. Чипами «Категории» можно оставить только интересные темы. Если снять все категории - Clippy честно скажет об этом в облачке.")
                         rowSep()
                         FAQItem(icon: "calendar", tone: toneTeal,
                                 q: "«В этот день» (Википедия)",
