@@ -1,5 +1,6 @@
 #!/bin/bash
-# собирает release-бинарь, упаковывает в ClippyMac.app и создаёт .dmg.
+# собирает release-бинарь, упаковывает в ClippyMac.app и создаёт нарядный .dmg-установщик
+# (create-dmg: окно с иконкой приложения и стрелкой на Applications; фон - assets/dmg-background.png).
 # ad-hoc подпись, без Developer ID - при первом запуске: правый клик -> «Открыть».
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -81,6 +82,33 @@ codesign --force --sign - "$RESB"
 codesign --force --sign - "$APP"
 
 echo "==> creating dmg"
-hdiutil create -volname "ClippyMac" -srcfolder "$APP" -ov -format UDZO "$DMG" >/dev/null
+# нарядный установщик (окно с иконкой + стрелка на Applications + фон) через create-dmg.
+# на dev-машине shell-версию (create-dmg/create-dmg) может затенять node-версия в PATH -
+# берём её строго по brew-префиксу; если create-dmg нет вовсе - простой dmg через hdiutil
+CREATE_DMG="$(brew --prefix create-dmg 2>/dev/null)/bin/create-dmg"
+[ -x "$CREATE_DMG" ] || CREATE_DMG="$(command -v create-dmg || true)"
+
+if [ -n "${CREATE_DMG:-}" ] && [ -x "$CREATE_DMG" ]; then
+  STAGE="build/dmg-src"
+  rm -rf "$STAGE"; mkdir -p "$STAGE"
+  cp -R "$APP" "$STAGE/"                       # источник для create-dmg: только .app
+  "$CREATE_DMG" \
+    --volname "Clippy Mac" \
+    --volicon assets/AppIcon.icns \
+    --background assets/dmg-background.png \
+    --window-pos 200 120 \
+    --window-size 540 400 \
+    --icon-size 128 \
+    --icon "ClippyMac.app" 150 205 \
+    --hide-extension "ClippyMac.app" \
+    --app-drop-link 390 205 \
+    --no-internet-enable \
+    --hdiutil-retries 5 \
+    "$DMG" "$STAGE"
+  rm -rf "$STAGE"
+else
+  echo "create-dmg не найден - собираю простой dmg через hdiutil" >&2
+  hdiutil create -volname "Clippy Mac" -srcfolder "$APP" -ov -format UDZO "$DMG" >/dev/null
+fi
 
 echo "==> done: $DMG"

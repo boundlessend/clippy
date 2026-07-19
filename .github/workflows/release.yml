@@ -15,6 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install create-dmg
+        run: brew install create-dmg   # нарядный установщик (окно + стрелка на Applications)
+
       - name: Build DMG (version from tag)
         run: VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-dmg.sh
 
