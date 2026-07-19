@@ -13,7 +13,10 @@ jobs:
   release:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
+
+      - name: Pin Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app   # тот же тулчейн, что в ci.yml
 
       - name: Self-check (no GUI)
         run: CLIPPY_SELFTEST=1 swift run   # релиз не пакуем, пока логика/ассеты не проверены
@@ -28,11 +31,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # заметки = статичный блок про установку/Gatekeeper + авто-changelog из истории коммитов
+          # заметки = статичный блок про установку/Gatekeeper + SHA256 + авто-changelog
           cp .github/release-notes.md /tmp/notes.md
+          {
+            echo ""
+            echo "SHA256: \`$(shasum -a 256 build/ClippyMac.dmg | cut -d' ' -f1)\`"
+            echo ""
+          } >> /tmp/notes.md
           gh api "repos/${{ github.repository }}/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq .body >> /tmp/notes.md 2>/dev/null || true
-          gh release create "$GITHUB_REF_NAME" \
-            build/ClippyMac.dmg \
-            --title "Clippy Mac $GITHUB_REF_NAME" \
-            --notes-file /tmp/notes.md
+            -f tag_name="$GITHUB_REF_NAME" --jq .body >> /tmp/notes.md \
+            || echo "::warning::generate-notes failed, release goes without changelog"
+          # перезапуск workflow после сбоя публикации не должен падать на существующем релизе
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" build/ClippyMac.dmg --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              build/ClippyMac.dmg \
+              --title "Clippy Mac $GITHUB_REF_NAME" \
+              --notes-file /tmp/notes.md
+          fi

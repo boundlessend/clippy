@@ -6,9 +6,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # версия (semver): env VERSION (так делает CI из git-тега, см. release.yml),
-# иначе последний тег репозитория - локальная сборка не шьёт устаревший дефолт
-VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
+# иначе git describe - untagged HEAD получает суффикс -N-gHASH и приложение
+# считает себя dev-сборкой (UpdateCheck не спутает её с выпущенным релизом)
+VERSION="${VERSION:-$(git describe --tags 2>/dev/null | sed 's/^v//' || true)}"
 VERSION="${VERSION:-0.0.0}"         # дерево вовсе без тегов (свежий клон без истории)
+# версия уходит в XML Info.plist - битый тег не должен давать битый бандл
+if ! [[ "$VERSION" =~ ^[0-9A-Za-z.-]+$ ]]; then
+  echo "недопустимая VERSION: $VERSION (ожидается semver или git describe)" >&2
+  exit 1
+fi
 
 APP="build/Clippy Mac.app"          # имя бандла с пробелом - красивее в Finder/установщике
 DMG="build/ClippyMac.dmg"           # имя файла загрузки оставляем без пробела
@@ -38,7 +44,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <!-- ATS по умолчанию режет http; localhost (Ollama) разрешаем через loopback-исключение,
        публичные http остаются запрещены (для них - только https) -->
@@ -84,11 +90,17 @@ PLIST
 codesign --force --sign - "$RESB"
 codesign --force --sign - "$APP"
 
+echo "==> smoke: selftest packaged .app"
+# selftest в CI гоняется на дереве исходников (swift run) и не ловит класс багов
+# «ресурсы скопированы не туда» - здесь проверяем именно упакованный бандл
+CLIPPY_SELFTEST=1 "$APP/Contents/MacOS/ClippyMac"
+
 echo "==> creating dmg"
 # нарядный установщик (окно с иконкой + стрелка на Applications + фон) через create-dmg.
 # на dev-машине shell-версию (create-dmg/create-dmg) может затенять node-версия в PATH -
-# берём её строго по brew-префиксу; если create-dmg нет вовсе - простой dmg через hdiutil
-CREATE_DMG="$(brew --prefix create-dmg 2>/dev/null)/bin/create-dmg"
+# берём её строго по brew-префиксу; если create-dmg нет вовсе - простой dmg через hdiutil.
+# || true обязателен: без него отсутствие brew убивает скрипт по set -e, не дойдя до фолбэка
+CREATE_DMG="$({ brew --prefix create-dmg 2>/dev/null || true; })/bin/create-dmg"
 [ -x "$CREATE_DMG" ] || CREATE_DMG="$(command -v create-dmg || true)"
 
 if [ -n "${CREATE_DMG:-}" ] && [ -x "$CREATE_DMG" ]; then
