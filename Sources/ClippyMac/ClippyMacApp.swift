@@ -139,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             AppSettings.shared.feedTrashAsked = true
         }
         playRandomGesture()                                   // реакция персонажа в доке
-        let anchor = currentDockAnchor()
+        let anchor = NSEvent.mouseLocation                    // курсор в момент броска - на иконке
         let label = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) файлов"
         guard AppSettings.shared.trashOnFeed else {
             presentBubble("Ням! \(label)", anchor: anchor)    // файлы не трогаем
@@ -223,7 +223,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             AppSettings.shared.activeAgent = builtInAgentName
             applyAgentChange()             // программный сброс: перестроить аниматор и обновить счётчик пула
         }
-        PoolStore.prune(keeping: Set(availableAgents.map(\.name)))   // убрать пулы исчезнувших персонажей
+        // пулы пропавших персонажей не трогаем: папку могли вынести временно,
+        // а генерация пула - платная; осиротевший JSON в Application Support безвреден
     }
 
     // открыть папку персонажей в Finder
@@ -278,6 +279,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Выход", action: #selector(miQuit), keyEquivalent: "q")
         appMenu.items.forEach { $0.target = self }
+        // меню Правка: AppKit диспетчеризует Cmd+V/C/X/A через главное меню - без этих
+        // пунктов вставка/копирование не работают в полях настроек (target = responder chain)
+        let editItem = NSMenuItem()
+        main.addItem(editItem)
+        let edit = NSMenu(title: "Правка")
+        editItem.submenu = edit
+        edit.addItem(withTitle: "Отменить", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Повторить", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Вырезать", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Копировать", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Выделить всё", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         return main
     }
 
@@ -368,10 +382,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // MARK: - персонаж в доке
 
-    // активный персонаж: из списка по имени, иначе встроенный
-    private func activeAgentRef() -> AgentRef {
+    // активный персонаж: из списка по имени, иначе первый (Clippy);
+    // nil - библиотека пуста (повреждён бандл), рисовать некого
+    private func activeAgentRef() -> AgentRef? {
         availableAgents.first { $0.name == AppSettings.shared.activeAgent }
-            ?? AgentRef(name: builtInAgentName, directory: nil)
+            ?? availableAgents.first
     }
 
     // имя случайного персонажа, по возможности не текущего; nil - список пуст
@@ -389,21 +404,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     // построить аниматор активного персонажа и запустить бесконечный idle в доке
     private func rebuildDockAnimator() {
-        guard let dockView else { return }
+        guard let dockView, let ref = activeAgentRef() else { return }
         gestureInFlight = false                 // если сборка бросит на кривом agent.json, idle не должен остаться заглушённым
         do {
-            let ref = activeAgentRef()
             let agent = try loadClippyAgent(from: ref.directory)
             let sheet = try loadSpriteSheet(from: ref.directory)
-            let soundsBase = ref.directory?.appendingPathComponent("sounds")
             let a = SpriteAnimator(imageView: dockView, sheet: sheet, agent: agent,
-                                   soundsBase: soundsBase,
+                                   soundsBase: ref.directory.appendingPathComponent("sounds"),
                                    onRender: { NSApp.dockTile.display() })
             animator?.stop()                       // погасить прежний, чтобы не дрались за иконку
             animator = a
             playGesture("Show")                    // приветственный жест, затем idle через гейт
         } catch {
             NSLog("clippy: failed to build dock animator: \(error)")
+            // выбор уже переключён, а в доке остался прежний персонаж - не расходимся
+            // молча: сообщаем и откатываемся на встроенного (он валиден, рекурсия одноразовая)
+            presentErrorAlert("Не удалось загрузить персонажа «\(ref.name)»", error)
+            if AppSettings.shared.activeAgent != builtInAgentName {
+                AppSettings.shared.activeAgent = builtInAgentName
+                applyAgentChange()
+            }
         }
     }
 
@@ -427,11 +447,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         }
     }
 
-    // якорь облачка: точный rect иконки дока через AX, иначе позиция курсора
-    private func currentDockAnchor() -> NSPoint {
-        dockAnchor(orientation: dockOrientation()) ?? NSEvent.mouseLocation
-    }
-
     // показать облачко у иконки и завести таймер автоскрытия (длиннее текст - дольше показ)
     private func presentBubble(_ text: String, anchor: NSPoint) {
         showBubble(text, anchor: anchor)
@@ -447,13 +462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // иначе молча показался бы локальный фолбэк, и непонятно, что пул не наполнен
     private func emptyPoolHint() -> String? {
         let s = AppSettings.shared
-        let usePool: Bool
-        switch s.providerKind {
-        case .ollama: usePool = s.ollamaConfig.usePool
-        case .claude: usePool = s.claudeConfig.usePool
-        default: return nil
-        }
-        guard usePool, PoolStore.count(character: s.activeAgent) == 0 else { return nil }
+        guard s.usePool(for: s.providerKind), PoolStore.count(character: s.activeAgent) == 0 else { return nil }
         return "Пул фактов пуст - сгенерируйте их в настройках"
     }
 
@@ -462,8 +471,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
     // показать факт у иконки в доке; если у персонажа нет фактов - ничего не показываем
     func showFact() {
         guard AppSettings.shared.enabled, !factInFlight else { return }
-        // якорь фиксируем в момент клика (курсор потом уедет), показываем после загрузки факта
-        let anchor = currentDockAnchor()
+        // якорь - курсор, зафиксированный в момент клика (по клику из дока он на иконке;
+        // из меню/настроек облачко встаёт у места вызова). показываем после загрузки факта
+        let anchor = NSEvent.mouseLocation
         playRandomGesture()                             // мгновенная реакция: клик услышан, факт грузится
         if let hint = emptyPoolHint() {                 // пул выбран, но пуст - подсказать, не молчать
             presentBubble(hint, anchor: anchor)
@@ -474,9 +484,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
             defer { self.factInFlight = false }
             guard let tip = await self.fetchTip() else {
                 let s = AppSettings.shared
-                // единственный «тихий» случай, который стоит объяснить: Clippy + локальный источник
-                // при снятых всех категориях. остальное (у персонажа нет tips.json) - молча, как раньше
-                if s.providerKind == .local, s.enabledCategories.isEmpty, s.activeAgent == builtInAgentName {
+                // единственный «тихий» случай, который стоит объяснить: локальный источник при
+                // снятых всех категориях. остальное (у персонажа нет tips.json) - молча, как раньше
+                if s.providerKind == .local, s.enabledCategories.isEmpty {
                     self.presentBubble("Все категории фактов выключены - включите в настройках", anchor: anchor)
                 } else {
                     NSLog("clippy: фактов для персонажа нет - облачко не показываем")
@@ -513,13 +523,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
-    // MARK: - контент
+    // MARK: - контент (сборка провайдеров - в ProviderFactory.swift)
 
     // фолбэк-цепочка: выбранный провайдер, при ошибке - локальные факты персонажа
     private func fetchTip() async -> String? {
         for kind in providerChain(selected: AppSettings.shared.providerKind) {
             do {
-                let tip = try await provider(for: kind).nextTip()
+                let tip = try await makeTipProvider(kind: kind, settings: AppSettings.shared,
+                                                    agentDirectory: activeAgentRef()?.directory).nextTip()
                 if !tip.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return tip }
                 // пустой результат (не throw) не показываем пустым облачком - идём к фолбэку
             } catch { NSLog("clippy: провайдер \(kind.rawValue) не сработал: \(error)") }
@@ -527,70 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         return nil
     }
 
-    // приоритет источника: настройка -> env -> дефолт (одно место для provider/makeLLMProvider)
-    private func resolveOllama() throws -> (url: URL, model: String) {
-        let s = AppSettings.shared
-        let env = ProcessInfo.processInfo.environment
-        let urlStr = s.ollamaURL.isEmpty
-            ? (env["CLIPPY_OLLAMA_URL"] ?? AppSettings.defaultOllamaURL) : s.ollamaURL
-        guard let url = URL(string: urlStr) else { throw AssetError.missing("Ollama URL") }
-        let model = s.ollamaModel.isEmpty
-            ? (env["CLIPPY_OLLAMA_MODEL"] ?? AppSettings.defaultOllamaModel) : s.ollamaModel
-        return (url, model)
-    }
-    private func resolveClaudeKey() throws -> String {
-        let s = AppSettings.shared
-        let key = s.claudeKey.isEmpty
-            ? (ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? "") : s.claudeKey
-        guard !key.isEmpty else { throw AssetError.missing("ключ Claude (в настройках)") }
-        return key
-    }
-
-    // локальные факты - по активному персонажу: Clippy -> встроенный tips.json;
-    // другой персонаж -> его собственный tips.json (нет файла -> throws -> облачка не будет)
-    private func provider(for kind: ProviderKind) throws -> TipProvider {
-        let s = AppSettings.shared
-        let env = ProcessInfo.processInfo.environment
-        switch kind {
-        case .local:
-            let ref = activeAgentRef()
-            if let dir = ref.directory { return try AgentTipsProvider(directory: dir, enabled: s.enabledCategories) }
-            return try LocalJSONProvider(enabled: s.enabledCategories)
-        case .ollama:
-            if s.ollamaConfig.usePool { return try PoolProvider(character: s.activeAgent) }
-            let o = try resolveOllama()
-            return OllamaProvider(endpoint: o.url, model: o.model,
-                                  prompt: singleFactPrompt(style: s.ollamaConfig.prompt))
-        case .claude:
-            if s.claudeConfig.usePool { return try PoolProvider(character: s.activeAgent) }
-            return ClaudeProvider(apiKey: try resolveClaudeKey(), maxTokens: max(150, s.claudeConfig.maxLen),
-                                  prompt: singleFactPrompt(style: s.claudeConfig.prompt))
-        case .facts:
-            return OnThisDayProvider()
-        case .rss:
-            let feed = s.rssURL.isEmpty ? (env["CLIPPY_RSS_URL"] ?? "") : s.rssURL
-            guard !feed.isEmpty, let url = URL(string: feed) else {
-                throw AssetError.missing("адрес RSS (в настройках)")
-            }
-            return RSSProvider(feedURL: url)
-        }
-    }
-
     // MARK: - генерация пула
-
-    // построить LLM-провайдер выбранного источника для генерации пачкой
-    private func makeLLMProvider(_ kind: ProviderKind, maxTokens: Int) throws -> LLMProvider {
-        switch kind {
-        case .ollama:
-            let o = try resolveOllama()
-            return OllamaProvider(endpoint: o.url, model: o.model, timeout: batchTimeout, attempts: 1)
-        case .claude:
-            return ClaudeProvider(apiKey: try resolveClaudeKey(), maxTokens: maxTokens,
-                                  timeout: batchTimeout, attempts: 1)
-        default:
-            throw AssetError.missing("генерация только для Ollama/Claude")
-        }
-    }
 
     private var poolTask: Task<Void, Never>?          // текущая генерация пула (для отмены)
 
@@ -606,12 +554,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
         poolTask = Task { @MainActor in
             defer { isGeneratingPool = false; poolTask = nil }
             do {
-                let provider = try makeLLMProvider(kind, maxTokens: maxTokens)
+                let provider = try makeLLMProvider(kind: kind, settings: s, maxTokens: maxTokens)
                 let facts = try await generateFactBatch(provider, style: cfg.prompt, count: count)
                 try Task.checkCancellation()
                 try PoolStore.append(character: character, facts: facts)
                 refreshPoolCount()
             } catch is CancellationError {
+                NSLog("clippy: генерация пула отменена")
+            } catch let e as URLError where e.code == .cancelled {
+                // отмена во время сетевого запроса приходит как URLError(.cancelled),
+                // а не CancellationError - это тоже отмена, алерт не показываем
                 NSLog("clippy: генерация пула отменена")
             } catch {
                 NSLog("clippy: генерация пула не удалась: \(error)")

@@ -24,7 +24,20 @@ private func dyn(_ light: UInt, _ dark: UInt) -> Color {
 
 private extension Color { init(hex: UInt) { self = Color(nsColor: NSColor(hex: hex)) } }
 
-private enum P {
+// общий каркас шапки окна (настройки и FAQ): отступы, градиент тона, разделитель снизу
+extension View {
+    func headerChrome(_ tint: Color) -> some View {
+        padding(.horizontal, 22).padding(.vertical, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LinearGradient(colors: [tint.opacity(0.18), tint.opacity(0.03)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(alignment: .bottom) { rowSep() }
+    }
+}
+
+// палитра и атомы (rowSep, settingsGroup, eyebrow, iconChip, тона) не private:
+// их делит окно FAQ (FAQView.swift), свёрстанное в том же стиле
+enum P {
     static let ground = dyn(0xECECED, 0x0F0F11)
     static let card = dyn(0xFFFFFF, 0x232327)
     static let sunken = dyn(0xF6F6F9, 0x1B1B1F)
@@ -39,11 +52,11 @@ private enum P {
 }
 
 // тона рядов/секций
-private let toneAmber = Color(hex: 0xE0952A)
-private let toneTeal = Color(hex: 0x3AA6C9)
-private let toneGreen = Color(hex: 0x2FA36B)
-private let toneRed = Color(hex: 0xD84F4F)
-private let toneIndigo = Color(hex: 0x5B63C4)
+let toneAmber = Color(hex: 0xE0952A)
+let toneTeal = Color(hex: 0x3AA6C9)
+let toneGreen = Color(hex: 0x2FA36B)
+let toneRed = Color(hex: 0xD84F4F)
+let toneIndigo = Color(hex: 0x5B63C4)
 
 // оттенок конкретного персонажа (для аватара/выделения), иначе акцент
 private let characterTints: [String: Color] = [
@@ -130,13 +143,7 @@ struct SettingsRootView: View {
                 .buttonStyle(.plain).help("Частые вопросы: настройка источников и персонажей")
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(colors: [P.accent.opacity(0.20), P.accent.opacity(0.04)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(alignment: .bottom) { rowSep() }
+        .headerChrome(P.accent)
     }
 
     // персонаж: сетка со спрайтами + случайный при запуске + библиотека
@@ -261,21 +268,12 @@ struct SettingsRootView: View {
         .padding(.horizontal, 6).padding(.top, 4).padding(.bottom, 2)
     }
 
-    // аватар персонажа на тонированной подложке
+    // аватар персонажа в шапке: общий спрайт-блок + тонкая рамка
     private func avatarView(for name: String, size: CGFloat, corner: CGFloat) -> some View {
-        let t = charTint(name)
-        return RoundedRectangle(cornerRadius: corner, style: .continuous)
-            .fill(RadialGradient(colors: [t.opacity(0.30), t.opacity(0.08)],
-                                 center: UnitPoint(x: 0.5, y: 0.36),
-                                 startRadius: 2, endRadius: size * 0.72))
+        AgentAvatar(name: name, image: delegate.agentAvatars[name], corner: corner)
             .frame(width: size, height: size)
-            .overlay {
-                if let img = delegate.agentAvatars[name] {
-                    Image(nsImage: img).resizable().scaledToFit().padding(size * 0.13)
-                }
-            }
             .overlay(RoundedRectangle(cornerRadius: corner, style: .continuous)
-                .strokeBorder(t.opacity(0.25), lineWidth: 1))
+                .strokeBorder(charTint(name).opacity(0.25), lineWidth: 1))
     }
 
     private func ghostButton(_ title: String, _ action: @escaping () -> Void) -> some View {
@@ -357,10 +355,10 @@ struct SettingsRootView: View {
 }
 
 // тонкая линия-разделитель между рядами
-private func rowSep() -> some View { Rectangle().fill(P.line).frame(height: 1) }
+func rowSep() -> some View { Rectangle().fill(P.line).frame(height: 1) }
 
 // иконка-чип 32x32 в тонированном квадрате
-private func iconChip(_ name: String, _ tone: Color) -> some View {
+func iconChip(_ name: String, _ tone: Color) -> some View {
     RoundedRectangle(cornerRadius: 9, style: .continuous)
         .fill(tone.opacity(0.15))
         .frame(width: 32, height: 32)
@@ -368,7 +366,7 @@ private func iconChip(_ name: String, _ tone: Color) -> some View {
 }
 
 // карточка-группа: белая подложка, скругление, тонкая рамка
-@ViewBuilder private func settingsGroup<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+@ViewBuilder func settingsGroup<C: View>(@ViewBuilder _ content: () -> C) -> some View {
     VStack(spacing: 0) { content() }
         .padding(.horizontal, 16)
         .background(P.card)
@@ -378,7 +376,7 @@ private func iconChip(_ name: String, _ tone: Color) -> some View {
 }
 
 // eyebrow-заголовок секции: цветная точка + капс-текст
-private func eyebrow(_ text: String, _ tone: Color) -> some View {
+func eyebrow(_ text: String, _ tone: Color) -> some View {
     HStack(spacing: 7) {
         Circle().fill(tone).frame(width: 6, height: 6)
         Text(text.uppercased()).font(.system(size: 11, weight: .heavy)).tracking(0.7).foregroundStyle(P.ink3)
@@ -438,6 +436,25 @@ private struct InlineRow<Trailing: View>: View {
     }
 }
 
+// спрайт персонажа на тонированной радиальной подложке (шапка настроек и карточки сетки)
+private struct AgentAvatar: View {
+    let name: String
+    let image: NSImage?
+    let corner: CGFloat
+
+    var body: some View {
+        let t = charTint(name)
+        RoundedRectangle(cornerRadius: corner, style: .continuous)
+            .fill(RadialGradient(colors: [t.opacity(0.30), t.opacity(0.09)],
+                                 center: UnitPoint(x: 0.5, y: 0.36), startRadius: 2, endRadius: 38))
+            .overlay {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFit().padding(7)
+                }
+            }
+    }
+}
+
 // карточка персонажа: аватар-спрайт + имя, выделяется оттенком при выборе
 private struct CharacterCard: View {
     let name: String
@@ -447,15 +464,8 @@ private struct CharacterCard: View {
     var body: some View {
         let t = charTint(name)
         return VStack(spacing: 7) {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(RadialGradient(colors: [t.opacity(0.30), t.opacity(0.09)],
-                                     center: UnitPoint(x: 0.5, y: 0.36), startRadius: 2, endRadius: 34))
+            AgentAvatar(name: name, image: image, corner: 13)
                 .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    if let image {
-                        Image(nsImage: image).resizable().scaledToFit().padding(6)
-                    }
-                }
             Text(name).font(.system(size: 12, weight: selected ? .semibold : .medium))
                 .foregroundStyle(selected ? t : P.ink).lineLimit(1)
         }
@@ -465,125 +475,5 @@ private struct CharacterCard: View {
         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
             .strokeBorder(selected ? t : P.line, lineWidth: 1.5))
         .contentShape(Rectangle())
-    }
-}
-
-// MARK: - FAQ (частые вопросы: настройка источников и своего персонажа)
-// отдельное окно в стиле панели настроек. текст ответов - markdown (`код`, **жирный**)
-
-struct FAQView: View {
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                VStack(alignment: .leading, spacing: 0) {
-                    eyebrow("С чего начать", toneAmber)
-                    settingsGroup {
-                        FAQItem(icon: "cursorarrow.click", tone: toneAmber,
-                                q: "Как это вообще работает?",
-                                a: "Клик по иконке в доке показывает один факт в облачке. Откуда берётся факт - задаёт «Факты → Источник» в настройках. Если персонаж выключен тумблером «Включён», облачко не появляется.")
-                        rowSep()
-                        FAQItem(icon: "arrow.triangle.2.circlepath", tone: toneGreen,
-                                q: "Сменил источник, а факты как будто прежние?",
-                                a: "Если выбранный источник не ответил (нет интернета, не задан ключ или адрес), Clippy молча берёт локальный факт - чтобы облачко не было пустым. Ниже расписаны условия каждого источника.")
-                        rowSep()
-                        FAQItem(icon: "hand.point.up.left.fill", tone: toneTeal,
-                                q: "Почему Clippy в меню «Открыть в программе»?",
-                                a: "Чтобы персонажа можно было кормить, приложение объявляет системе, что принимает любые файлы. Побочный эффект: macOS показывает Clippy Mac в «Открыть в программе» у всех файлов. Выбор этого пункта равен перетаскиванию на иконку: файл будет «съеден» (и отправлен в Корзину, если включён такой режим).")
-                    }
-
-                    eyebrow("Источники фактов", toneTeal)
-                    settingsGroup {
-                        FAQItem(icon: "shippingbox.fill", tone: toneAmber,
-                                q: "Локальные советы",
-                                a: "Работают сразу, настраивать ничего не нужно: ~700 реплик Clippy. Чипами «Категории» можно оставить только интересные темы. Если снять все категории - Clippy честно скажет об этом в облачке.")
-                        rowSep()
-                        FAQItem(icon: "calendar", tone: toneTeal,
-                                q: "«В этот день» (Википедия)",
-                                a: "Историческое событие, случившееся в этот день, из русской Википедии - на русском, ключ не нужен, только интернет. Нет сети - покажется локальный факт.")
-                        rowSep()
-                        FAQItem(icon: "desktopcomputer", tone: toneGreen,
-                                q: "Ollama (локально)",
-                                a: "Своя нейросеть прямо на вашем компьютере - приватно и бесплатно. Нужно: 1) установить Ollama с ollama.com; 2) один раз скачать модель командой `ollama pull llama3.2`; 3) чтобы в фоне работал `ollama serve`. Адрес `http://localhost:11434/api/generate` и модель `llama3.2` уже подставлены в настройках - при желании поменяйте. Каждый клик генерирует новый факт (пара секунд).")
-                        rowSep()
-                        FAQItem(icon: "sparkles", tone: toneIndigo,
-                                q: "Claude API",
-                                a: "Факты сочиняет Claude - это платный сервис Anthropic. Нужен ключ с console.anthropic.com: вставьте его в поле «Ключ Claude API» (хранится в Связке ключей, не открытым текстом). Каждый клик - один запрос (доли цента). Если ключ неверный, Clippy тихо покажет локальный факт - проверьте ключ.")
-                        rowSep()
-                        FAQItem(icon: "dot.radiowaves.up.forward", tone: toneRed,
-                                q: "RSS-лента",
-                                a: "Показывает заголовок свежей новости из любой ленты. Вставьте адрес ленты в поле - он должен начинаться с **https** (http заблокирован ради безопасности). Подойдёт любой обычный RSS.")
-                    }
-
-                    eyebrow("Свой персонаж", toneIndigo)
-                    settingsGroup {
-                        FAQItem(icon: "folder.fill", tone: toneIndigo,
-                                q: "Как добавить своего персонажа?",
-                                a: "«Персонаж → Библиотека → Папка» откроет папку `Agents`. Положите туда подпапку персонажа с файлами `agent.json` и `map.png` (формат ClippyJS / Microsoft Agent) и нажмите «Обновить» - персонаж появится в сетке.")
-                        rowSep()
-                        FAQItem(icon: "arrow.down.doc.fill", tone: toneTeal,
-                                q: "Взять готового из ClippyJS",
-                                a: "В комплекте есть импортёр: `python3 scripts/import-clippyjs.py <папка-персонажа> [Имя]`. Он соберёт `map.png` и `agent.json` в нужном виде.")
-                        rowSep()
-                        FAQItem(icon: "text.bubble.fill", tone: toneAmber,
-                                q: "Почему свой персонаж молчит?",
-                                a: "У каждого персонажа свои факты. Чтобы он их показывал, положите ему в папку файл `tips.json` - это либо простой список строк, либо словарь по категориям. Без этого файла персонаж ничего не говорит.")
-                    }
-
-                    eyebrow("Если ничего не появляется", toneRed)
-                    settingsGroup {
-                        FAQItem(icon: "checklist", tone: toneRed,
-                                q: "Проверьте по порядку",
-                                a: "1) включён ли тумблер «Включён»; 2) для Claude вставлен ли ключ, для RSS - адрес; 3) есть ли у своего персонажа `tips.json`; 4) не сняты ли у Clippy все категории. Если выбранный источник недоступен, но у персонажа есть локальные факты - покажется факт из них.")
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 18)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(P.ground)
-        .scrollContentBackground(.hidden)
-        .scrollIndicators(.hidden)                          // без полосы прокрутки
-    }
-
-    private var header: some View {
-        HStack(spacing: 14) {
-            iconChip("questionmark", toneIndigo)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Частые вопросы").font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(P.ink)
-                Text("Настройка источников и персонажей").font(.system(size: 12.5)).foregroundStyle(P.ink2)
-            }
-            Spacer(minLength: 8)
-        }
-        .padding(.horizontal, 22).padding(.vertical, 18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(colors: [toneIndigo.opacity(0.18), toneIndigo.opacity(0.03)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing))
-        .overlay(alignment: .bottom) { rowSep() }
-    }
-}
-
-// один вопрос-ответ: иконка-чип + жирный вопрос + markdown-ответ
-private struct FAQItem: View {
-    let icon: String
-    let tone: Color
-    let q: String
-    let a: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            iconChip(icon, tone)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(q).font(.system(size: 14, weight: .semibold)).foregroundStyle(P.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(.init(a)).font(.system(size: 12.5)).foregroundStyle(P.ink2)
-                    .fixedSize(horizontal: false, vertical: true).lineSpacing(2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 13)
     }
 }

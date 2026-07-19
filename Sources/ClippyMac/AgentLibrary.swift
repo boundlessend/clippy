@@ -1,14 +1,14 @@
 import Foundation
 
-// библиотека персонажей: встроенный Clippy + пользовательские из папки Agents.
-// каждый пользовательский персонаж - подпапка с agent.json и map.png (+ опц. sounds/).
+// библиотека персонажей: встроенные из бандла (BundledAgents) + пользовательские из
+// папки Agents. каждый персонаж - подпапка с agent.json и map.png (+ опц. sounds/, tips.json).
 
 let builtInAgentName = "Clippy"
 
-// ссылка на персонажа: directory == nil означает встроенного из бандла
-struct AgentRef: Identifiable, Equatable {
+// ссылка на персонажа: папка с его файлами (в бандле или пользовательская)
+struct AgentRef: Identifiable {
     let name: String
-    let directory: URL?
+    let directory: URL
     var id: String { name }
 }
 
@@ -21,13 +21,13 @@ func agentsFolder() -> URL {
 }
 
 // встроенный Clippy + персонажи из бандла (в комплекте) + пользовательские из папки Agents.
-// встроенный Clippy (имя "Clippy") всегда из бандла и папкой Agents не переопределяется;
+// Clippy всегда первый и всегда из бандла (папкой Agents не переопределяется);
 // для остальных имён пользовательская папка Agents перекрывает одноимённого из бандла
 func discoverAgents() -> [AgentRef] {
-    var seen = Set([builtInAgentName])
-    var refs = [AgentRef(name: builtInAgentName, directory: nil)]
     let bundled = resourceBundle.url(forResource: "BundledAgents", withExtension: nil)
         .map { validAgents(in: $0) } ?? []
+    var refs = bundled.filter { $0.name == builtInAgentName }
+    var seen = Set([builtInAgentName])
     for ref in validAgents(in: agentsFolder()) + bundled where seen.insert(ref.name).inserted {
         refs.append(ref)
     }

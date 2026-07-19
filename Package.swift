@@ -3,12 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "ClippyMac",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
             name: "ClippyMac",
             path: "Sources/ClippyMac",
-            resources: [.process("Resources"), .copy("BundledAgents")]
+            resources: [.copy("BundledAgents")]
         )
     ]
 )

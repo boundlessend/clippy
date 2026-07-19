@@ -6,12 +6,17 @@ import AppKit
 func runSelfCheckIfRequested() {
     guard ProcessInfo.processInfo.environment["CLIPPY_SELFTEST"] != nil else { return }
     do {
-        let agent = try loadClippyAgent(from: nil)
+        // библиотека персонажей: встроенный Clippy всегда доступен (папка бандла)
+        let agents = discoverAgents()
+        guard let clippy = agents.first(where: { $0.name == builtInAgentName }) else {
+            fatalError("built-in agent missing from library")
+        }
+        let agent = try loadClippyAgent(from: clippy.directory)
         precondition(agent.framesize.count == 2, "framesize must be [w,h]")
         let fs = agent.frameSize
         precondition(fs.width > 0 && fs.height > 0, "empty frame size")
 
-        let sheet = try loadSpriteSheet(from: nil)
+        let sheet = try loadSpriteSheet(from: clippy.directory)
         var cropped = 0
         for (name, anim) in agent.animations {
             for frame in anim.frames {
@@ -26,15 +31,16 @@ func runSelfCheckIfRequested() {
             }
         }
         // контент: tips.json грузится, непустой, и провайдер инициализируется
-        guard let turl = resourceBundle.url(forResource: "tips", withExtension: "json") else {
-            fatalError("tips.json missing")
-        }
+        let turl = clippy.directory.appendingPathComponent("tips.json")
         let byCat = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: turl))
         let tips = byCat.values.flatMap { $0 }
         precondition(!tips.isEmpty && tips.allSatisfy { !$0.isEmpty }, "tips must be non-empty")
         precondition(AppSettings.allCategoryKeys.isSubset(of: Set(byCat.keys)),
                      "tips.json missing a category")
-        _ = try LocalJSONProvider(enabled: AppSettings.allCategoryKeys)
+        _ = try AgentTipsProvider(directory: clippy.directory, enabled: AppSettings.allCategoryKeys)
+        // сняты все категории -> провайдер бросает (showFact показывает подсказку, а не молчит)
+        precondition((try? AgentTipsProvider(directory: clippy.directory, enabled: [])) == nil,
+                     "empty categories must throw")
 
         // облачко у дока: origin всегда внутри экрана и с нужной стороны от иконки
         let vf = NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -49,15 +55,6 @@ func runSelfCheckIfRequested() {
         precondition(bubbleOrigin(anchor: anchor, orientation: .bottom,
                                   bubbleSize: bsize, screen: vf).y >= anchor.y,
                      "bottom-dock bubble must sit above the click")
-
-        // якорь берётся с края иконки, обращённого к доку (низ -> верх, слева -> правый край, справа -> левый)
-        let icon = NSRect(x: 100, y: 200, width: 60, height: 60)
-        precondition(dockEdgeAnchor(iconRect: icon, orientation: .bottom) == NSPoint(x: icon.midX, y: icon.maxY),
-                     "bottom anchor must be top-center of icon")
-        precondition(dockEdgeAnchor(iconRect: icon, orientation: .left) == NSPoint(x: icon.maxX, y: icon.midY),
-                     "left anchor must be right-center of icon")
-        precondition(dockEdgeAnchor(iconRect: icon, orientation: .right) == NSPoint(x: icon.minX, y: icon.midY),
-                     "right anchor must be left-center of icon")
 
         // жесты персонажа: список содержит реальные жесты, но не idle/look/служебные
         let gestures = Set(expressiveGestures(from: Array(agent.animations.keys)))
@@ -74,23 +71,16 @@ func runSelfCheckIfRequested() {
         precondition(providerChain(selected: .local) == [.local], "local chain is just local")
         precondition(providerChain(selected: .claude) == [.claude, .local], "remote chain falls back to local")
 
-        // библиотека персонажей: встроенный Clippy всегда доступен и грузится как из папки=nil
-        let agents = discoverAgents()
-        precondition(agents.contains { $0.name == builtInAgentName && $0.directory == nil },
-                     "built-in agent missing from library")
-        _ = try loadClippyAgent(from: nil)
-
         // факты персонажей: у кого есть свой tips.json - грузится и непустой (проверяет dict+flat)
         var agentTipsChecked = 0
         for ref in agents {
-            guard let dir = ref.directory,
-                  FileManager.default.fileExists(atPath: dir.appendingPathComponent("tips.json").path)
-            else { continue }
-            _ = try AgentTipsProvider(directory: dir, enabled: AppSettings.allCategoryKeys)
+            guard FileManager.default.fileExists(
+                atPath: ref.directory.appendingPathComponent("tips.json").path) else { continue }
+            _ = try AgentTipsProvider(directory: ref.directory, enabled: AppSettings.allCategoryKeys)
             agentTipsChecked += 1
         }
 
-        // branching/exitBranch: все целевые индексы в границах своей анимации
+        // branching: все целевые индексы в границах своей анимации
         var soundKeys = Set<String>()
         for (name, anim) in agent.animations {
             let n = anim.frames.count
@@ -99,9 +89,6 @@ func runSelfCheckIfRequested() {
                     precondition(br.frameIndex >= 0 && br.frameIndex < n,
                                  "branch index out of range in \(name)")
                 }
-                if let e = f.exitBranch {
-                    precondition(e >= 0 && e < n, "exitBranch out of range in \(name)")
-                }
                 if let s = f.sound { soundKeys.insert(s) }
             }
             if n > 0 {
@@ -109,10 +96,10 @@ func runSelfCheckIfRequested() {
                 precondition(ni >= 0 && ni <= n, "next index invalid in \(name)")
             }
         }
-        // звуки: каждый ключ из кадров есть в бандле
+        // звуки: каждый ключ из кадров есть в папке персонажа
         for key in soundKeys {
-            precondition(
-                resourceBundle.url(forResource: key, withExtension: "mp3") != nil,
+            precondition(FileManager.default.fileExists(
+                atPath: clippy.directory.appendingPathComponent("sounds/\(key).mp3").path),
                 "missing sound \(key).mp3")
         }
 
@@ -125,6 +112,8 @@ func runSelfCheckIfRequested() {
                      == ["Начало факта, а это его продолжение"], "перенос строки склеивается")
         precondition(parseFactLines("1. факт раз\n2. факт два").count == 2,
                      "нумерованные строки - отдельные факты, даже с маленькой буквы")
+        precondition(parseFactLines("Первый факт.\niPhone представили в 2007 году.").count == 2,
+                     "факт с латиницы после завершённого предложения - не продолжение")
         precondition(assembleStylePrompt(persona: "Клиппи", constraints: "", maxLen: 100).contains("Клиппи"),
                      "style prompt must include persona")
         precondition(batchFactPrompt(style: "S", count: 5).contains("5"), "batch prompt must include count")

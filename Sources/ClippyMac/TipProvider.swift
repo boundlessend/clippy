@@ -5,30 +5,8 @@ protocol TipProvider: Sendable {
     func nextTip() async throws -> String
 }
 
-// локальный провайдер: читает tips.json (факты по категориям) из бандла,
-// оставляет только включённые категории и отдаёт случайный факт
-struct LocalJSONProvider: TipProvider {
-    private let tips: [String]
-
-    init(enabled: Set<String>) throws {
-        guard let url = resourceBundle.url(forResource: "tips", withExtension: "json") else {
-            throw AssetError.missing("tips.json")
-        }
-        let byCategory = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: url))
-        // сняты все категории -> набор пуст -> throws -> облачко не показываем (не «все»)
-        let list = byCategory.filter { enabled.contains($0.key) }.flatMap(\.value)
-        guard !list.isEmpty else { throw AssetError.missing("нет включённых категорий фактов") }
-        self.tips = list
-    }
-
-    func nextTip() async throws -> String {
-        guard let tip = tips.randomElement() else { throw AssetError.missing("пустой список фактов") }
-        return tip
-    }
-}
-
-// факты конкретного персонажа из <папка>/tips.json.
-// два формата: словарь по категориям (фильтруется включёнными категориями, как у Clippy)
+// факты персонажа из <папка>/tips.json (встроенные Clippy и компания - тоже папки бандла).
+// два формата: словарь по категориям (фильтруется включёнными категориями)
 // или плоский массив строк (для своих персонажей - категории необязательны).
 // нет файла или пусто -> throws: своих фактов нет, облачко не показываем
 struct AgentTipsProvider: TipProvider {
@@ -45,8 +23,10 @@ struct AgentTipsProvider: TipProvider {
             // знакомые ключи -> фильтруем по включённым категориям;
             // чужие ключи (свой персонаж со своими категориями) -> показываем все
             if byCategory.keys.contains(where: AppSettings.allCategoryKeys.contains) {
+                // сняты все категории -> throws: showFact объяснит в облачке, а не молчит
+                guard !enabled.isEmpty else { throw AssetError.missing("нет включённых категорий фактов") }
                 let filtered = byCategory.filter { enabled.contains($0.key) }.flatMap(\.value)
-                // фильтр обнулил список (тумблеры категорий - про Clippy) -> не молчим, показываем все
+                // включённые категории не пересеклись с ключами файла -> не молчим, показываем все
                 list = filtered.isEmpty ? byCategory.flatMap(\.value) : filtered
             } else {
                 list = byCategory.flatMap(\.value)

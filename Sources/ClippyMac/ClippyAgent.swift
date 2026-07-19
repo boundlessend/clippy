@@ -35,7 +35,6 @@ struct Animation: Decodable {
 struct Frame: Decodable {
     let duration: Int                    // мс
     let images: [[Int]]?                 // слои [[x,y]]; nil = пустой кадр
-    let exitBranch: Int?                 // только парсинг/валидация; в рантайме idle идёт линейно
     let branching: Branching?
     let sound: String?                   // ключ звука в sounds (1..15)
 }
@@ -51,16 +50,9 @@ struct Branch: Decodable {
 
 enum AssetError: Error { case missing(String) }
 
-// directory == nil -> встроенный агент из бандла; иначе agent.json из папки персонажа
-func loadClippyAgent(from directory: URL?) throws -> ClippyAgent {
-    let url: URL
-    if let directory {
-        url = directory.appendingPathComponent("agent.json")
-    } else if let bundled = resourceBundle.url(forResource: "clippy_agent", withExtension: "json") {
-        url = bundled
-    } else {
-        throw AssetError.missing("clippy_agent.json")
-    }
+// agent.json из папки персонажа (бандл или пользовательская)
+func loadClippyAgent(from directory: URL) throws -> ClippyAgent {
+    let url = directory.appendingPathComponent("agent.json")
     let agent = try JSONDecoder().decode(ClippyAgent.self, from: Data(contentsOf: url))
     guard agent.framesize.count == 2 else {          // чужой agent.json может быть кривым
         throw AssetError.missing("framesize должен быть [w,h]")
@@ -68,16 +60,9 @@ func loadClippyAgent(from directory: URL?) throws -> ClippyAgent {
     return agent
 }
 
-// directory == nil -> встроенный спрайтшит из бандла; иначе map.png из папки персонажа
-func loadSpriteSheet(from directory: URL?) throws -> CGImage {
-    let url: URL
-    if let directory {
-        url = directory.appendingPathComponent("map.png")
-    } else if let bundled = resourceBundle.url(forResource: "clippy_map", withExtension: "png") {
-        url = bundled
-    } else {
-        throw AssetError.missing("clippy_map.png")
-    }
+// map.png из папки персонажа
+func loadSpriteSheet(from directory: URL) throws -> CGImage {
+    let url = directory.appendingPathComponent("map.png")
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
           let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
         throw AssetError.missing(url.lastPathComponent)

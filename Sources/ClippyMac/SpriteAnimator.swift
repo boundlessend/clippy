@@ -35,14 +35,14 @@ final class SpriteAnimator {
     private let imageView: NSImageView
     private let sheet: CGImage
     private let agent: ClippyAgent
-    private let soundsBase: URL?          // папка sounds персонажа; nil -> звуки из бандла
+    private let soundsBase: URL           // папка sounds персонажа (нет файлов - жест играет беззвучно)
     private let onRender: (() -> Void)?   // вызывается после каждого кадра (обновить док-иконку)
     private let idleNames: [String]
     private var token = 0                 // растёт при смене анимации, гасит старую цепочку
     private var players: [String: AVAudioPlayer] = [:]
 
     init(imageView: NSImageView, sheet: CGImage, agent: ClippyAgent,
-         soundsBase: URL?, onRender: (() -> Void)?) {
+         soundsBase: URL, onRender: (() -> Void)?) {
         self.imageView = imageView
         self.sheet = sheet
         self.agent = agent
@@ -189,9 +189,8 @@ final class SpriteAnimator {
 
     private func soundPlayer(_ key: String) -> AVAudioPlayer? {
         if let cached = players[key] { return cached }
-        let url = soundsBase?.appendingPathComponent("\(key).mp3")
-            ?? resourceBundle.url(forResource: key, withExtension: "mp3")
-        guard let url, let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
+        let url = soundsBase.appendingPathComponent("\(key).mp3")
+        guard let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
         player.prepareToPlay()
         players[key] = player
         return player

@@ -25,7 +25,7 @@ struct TipCategory: Identifiable {
 
 // настройки генерации через LLM, свои для каждого провайдера (Ollama, Claude).
 // поля persona/constraints/maxLen собирают prompt; prompt редактируется и уходит модели
-struct LLMConfig: Codable, Equatable {
+struct LLMConfig: Codable {
     var persona: String
     var constraints: String
     var maxLen: Int
@@ -84,15 +84,10 @@ final class AppSettings: ObservableObject {
     @Published var claudeKey: String {
         didSet {
             guard !suppressClaudeKeyWrite else { return }   // загрузка из Keychain - не перезапись
-            // ключ пишем в Keychain с дебаунсом, а не на каждый символ ввода
-            claudeKeyWrite?.cancel()
             let key = claudeKey
-            let work = DispatchWorkItem { Keychain.set(key, account: K.claudeKey) }
-            claudeKeyWrite = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+            debounceWrite(K.claudeKey) { Keychain.set(key, account: K.claudeKey) }
         }
     }
-    private var claudeKeyWrite: DispatchWorkItem?
     private var claudeKeyLoaded = false
     private var suppressClaudeKeyWrite = false
 
@@ -107,11 +102,19 @@ final class AppSettings: ObservableObject {
         suppressClaudeKeyWrite = false
     }
 
-    // настройки генерации LLM (промпт-стиль + режим пула), свои для Ollama и Claude.
-    // пишем в UserDefaults с дебаунсом, а не на каждый символ ввода в полях
-    @Published var ollamaConfig: LLMConfig { didSet { debounceConfigSave(ollamaConfig, K.ollamaConfig) } }
-    @Published var claudeConfig: LLMConfig { didSet { debounceConfigSave(claudeConfig, K.claudeConfig) } }
-    private var configWrites: [String: DispatchWorkItem] = [:]
+    // настройки генерации LLM (промпт-стиль + режим пула), свои для Ollama и Claude
+    @Published var ollamaConfig: LLMConfig {
+        didSet {
+            let c = ollamaConfig
+            debounceWrite(K.ollamaConfig) { [weak self] in self?.saveConfig(c, K.ollamaConfig) }
+        }
+    }
+    @Published var claudeConfig: LLMConfig {
+        didSet {
+            let c = claudeConfig
+            debounceWrite(K.claudeConfig) { [weak self] in self?.saveConfig(c, K.claudeConfig) }
+        }
+    }
 
     // включённые категории локальных фактов
     @Published var enabledCategories: Set<String> {
@@ -120,6 +123,15 @@ final class AppSettings: ObservableObject {
 
     // активный персонаж (имя): встроенный Clippy или папка из ~/…/ClippyMac/Agents
     @Published var activeAgent: String { didSet { d.set(activeAgent, forKey: K.activeAgent) } }
+
+    // режим пула для LLM-источника (false для источников без пула)
+    func usePool(for kind: ProviderKind) -> Bool {
+        switch kind {
+        case .ollama: return ollamaConfig.usePool
+        case .claude: return claudeConfig.usePool
+        default: return false
+        }
+    }
 
     private let d = UserDefaults.standard
     private enum K {
@@ -178,29 +190,27 @@ final class AppSettings: ObservableObject {
         return c
     }
 
-    // отложенная запись конфига (0.5с), гасим предыдущую отложку для того же ключа
-    private func debounceConfigSave(_ c: LLMConfig, _ key: String) {
-        configWrites[key]?.cancel()
+    // отложенные записи (ключ в Keychain, конфиги в UserDefaults): пишем через 0.5с после
+    // последнего изменения, а не на каждый символ ввода; одна очередь на все ключи
+    private var pendingWrites: [String: (work: DispatchWorkItem, action: () -> Void)] = [:]
+
+    private func debounceWrite(_ key: String, _ action: @escaping () -> Void) {
+        pendingWrites[key]?.work.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.saveConfig(c, key)
-            self?.configWrites[key] = nil
+            self?.pendingWrites[key] = nil
+            action()
         }
-        configWrites[key] = work
+        pendingWrites[key] = (work, action)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     // немедленно записать отложенное (напр. при выходе), чтобы не потерять последний ввод
     func flushPendingWrites() {
-        if claudeKeyWrite != nil {
-            claudeKeyWrite?.cancel()
-            claudeKeyWrite = nil
-            Keychain.set(claudeKey, account: K.claudeKey)
-        }
-        if !configWrites.isEmpty {
-            configWrites.values.forEach { $0.cancel() }
-            configWrites.removeAll()
-            saveConfig(ollamaConfig, K.ollamaConfig)
-            saveConfig(claudeConfig, K.claudeConfig)
+        let pending = pendingWrites
+        pendingWrites.removeAll()
+        for entry in pending.values {
+            entry.work.cancel()
+            entry.action()
         }
     }
 }
