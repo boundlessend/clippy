@@ -14,6 +14,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5   # v4.3.1
+        with:
+          fetch-depth: 0   # полная история: changelog собирается из коммитов между тегами
 
       - name: Pin Xcode
         run: sudo xcode-select -s /Applications/Xcode_15.4.app   # тот же тулчейн, что в ci.yml
@@ -31,16 +33,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # заметки = статичный блок про установку/Gatekeeper + SHA256 + авто-changelog
+          # заметки = статичный блок про установку/Gatekeeper + SHA256 + changelog.
+          # список изменений собираем из коммитов сами: generate-notes строит его
+          # из pull request-ов, а проект коммитит напрямую в main
           cp .github/release-notes.md /tmp/notes.md
           {
             echo ""
             echo "SHA256: \`$(shasum -a 256 build/ClippyMac.dmg | cut -d' ' -f1)\`"
             echo ""
           } >> /tmp/notes.md
-          gh api "repos/${{ github.repository }}/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq .body >> /tmp/notes.md \
-            || echo "::warning::generate-notes failed, release goes without changelog"
+          PREV=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          RANGE="${PREV:+$PREV..}$GITHUB_REF_NAME"
+          {
+            echo "## Изменения"
+            echo ""
+            git log --format='- %s (%h)' "$RANGE"
+            echo ""
+            if [ -n "$PREV" ]; then
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV...$GITHUB_REF_NAME"
+            fi
+          } >> /tmp/notes.md
           # перезапуск workflow после сбоя публикации не должен падать на существующем релизе
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" build/ClippyMac.dmg --clobber
