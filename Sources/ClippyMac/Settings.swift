@@ -61,7 +61,12 @@ final class AppSettings: ObservableObject {
     static let defaultOllamaModel = "llama3.2"
 
     @Published var enabled: Bool { didSet { d.set(enabled, forKey: K.enabled) } }
-    @Published var providerKind: ProviderKind { didSet { d.set(providerKind.rawValue, forKey: K.provider) } }
+    @Published var providerKind: ProviderKind {
+        didSet {
+            d.set(providerKind.rawValue, forKey: K.provider)
+            if providerKind == .claude { loadClaudeKeyIfNeeded() }   // ключ читаем лениво (см. claudeKey)
+        }
+    }
     @Published var muted: Bool { didSet { d.set(muted, forKey: K.muted) } }
     // пауза анимации в доке при включённом режиме энергосбережения (по умолчанию выключено)
     @Published var pauseOnLowPower: Bool { didSet { d.set(pauseOnLowPower, forKey: K.pauseOnLowPower) } }
@@ -78,6 +83,7 @@ final class AppSettings: ObservableObject {
     @Published var rssURL: String { didSet { d.set(rssURL, forKey: K.rssURL) } }
     @Published var claudeKey: String {
         didSet {
+            guard !suppressClaudeKeyWrite else { return }   // загрузка из Keychain - не перезапись
             // ключ пишем в Keychain с дебаунсом, а не на каждый символ ввода
             claudeKeyWrite?.cancel()
             let key = claudeKey
@@ -87,6 +93,19 @@ final class AppSettings: ObservableObject {
         }
     }
     private var claudeKeyWrite: DispatchWorkItem?
+    private var claudeKeyLoaded = false
+    private var suppressClaudeKeyWrite = false
+
+    // однократно прочитать ключ из Keychain, когда он реально нужен (выбран источник Claude).
+    // на старте не читаем: при ad-hoc подписи каждая пересборка меняет сигнатуру, и чтение
+    // при запуске дёргало бы системный диалог доступа даже у тех, кто Claude не выбирал
+    func loadClaudeKeyIfNeeded() {
+        guard !claudeKeyLoaded else { return }
+        claudeKeyLoaded = true
+        suppressClaudeKeyWrite = true
+        claudeKey = Keychain.get(account: K.claudeKey) ?? ""
+        suppressClaudeKeyWrite = false
+    }
 
     // настройки генерации LLM (промпт-стиль + режим пула), свои для Ollama и Claude.
     // пишем в UserDefaults с дебаунсом, а не на каждый символ ввода в полях
@@ -140,11 +159,12 @@ final class AppSettings: ObservableObject {
         ollamaURL = d.string(forKey: K.ollamaURL) ?? Self.defaultOllamaURL
         ollamaModel = d.string(forKey: K.ollamaModel) ?? Self.defaultOllamaModel
         rssURL = d.string(forKey: K.rssURL) ?? ""
-        claudeKey = Keychain.get(account: K.claudeKey) ?? ""
+        claudeKey = ""                                       // из Keychain - лениво, см. loadClaudeKeyIfNeeded
         ollamaConfig = Self.loadConfig(d, K.ollamaConfig)
         claudeConfig = Self.loadConfig(d, K.claudeConfig)
         enabledCategories = d.stringArray(forKey: K.categories).map(Set.init) ?? Self.allCategoryKeys
         activeAgent = d.string(forKey: K.activeAgent) ?? builtInAgentName
+        if providerKind == .claude { loadClaudeKeyIfNeeded() }   // Claude уже выбран - ключ нужен сразу
     }
 
     // LLMConfig <-> UserDefaults как JSON; нет/битый -> дефолт
