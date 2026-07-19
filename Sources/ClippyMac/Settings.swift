@@ -52,6 +52,7 @@ final class AppSettings: ObservableObject {
         .init(key: "internet", title: "Интернет"),
         .init(key: "science", title: "Наука и природа"),
         .init(key: "care", title: "Советы и забота"),
+        .init(key: "humor", title: "Юмор"),
     ]
     static var allCategoryKeys: Set<String> { Set(tipCategories.map(\.key)) }
 
