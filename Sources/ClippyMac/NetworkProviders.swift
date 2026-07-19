@@ -46,14 +46,25 @@ func batchFactPrompt(style: String, count: Int) -> String {
 }
 
 // распарсить многострочный ответ модели в отдельные факты:
-// снять ведущую нумерацию/маркеры и кавычки, обрезать пробелы, выкинуть пустые
+// снять ведущую нумерацию/маркеры и кавычки, обрезать пробелы, выкинуть пустые.
+// нумерация - максимум две цифры: факт, начинающийся с года («1984. …»), не обрезаем.
+// строка без маркера и с маленькой буквы - перенесённое продолжение предыдущего факта
 func parseFactLines(_ raw: String) -> [String] {
-    raw.split(whereSeparator: \.isNewline).compactMap { line -> String? in
-        var s = String(line).trimmingCharacters(in: .whitespaces)
-        s = s.replacingOccurrences(of: #"^\s*(\d+[.):]\s*|[-*•]\s*)"#, with: "", options: .regularExpression)
-        s = s.trimmingCharacters(in: CharacterSet(charactersIn: "\"'«»").union(.whitespaces))
-        return s.isEmpty ? nil : s
+    var out: [String] = []
+    for line in raw.split(whereSeparator: \.isNewline) {
+        let trimmed = String(line).trimmingCharacters(in: .whitespaces)
+        let unmarked = trimmed.replacingOccurrences(
+            of: #"^\s*(\d{1,2}[.):]\s*|[-*•]\s*)"#, with: "", options: .regularExpression)
+        let hadMarker = unmarked != trimmed
+        let s = unmarked.trimmingCharacters(in: CharacterSet(charactersIn: "\"'«»").union(.whitespaces))
+        guard !s.isEmpty else { continue }
+        if !hadMarker, s.first?.isLowercase == true, !out.isEmpty {
+            out[out.count - 1] += " " + s
+        } else {
+            out.append(s)
+        }
     }
+    return out
 }
 
 // сгенерировать пачку фактов одним запросом к модели (для наполнения пула)
@@ -89,18 +100,24 @@ func ensureOK(_ resp: URLResponse) throws {
 }
 
 // retries с warning-логами и нарастающей паузой, затем raise последней ошибки (правило проекта).
-// клиентские 4xx (напр. 401 при неверном ключе) не ретраим - бесполезно; 429 (rate limit) - ретраим
-func withRetries<T>(_ attempts: Int = 3, _ op: () async throws -> T) async throws -> T {
+// клиентские 4xx (напр. 401 при неверном ключе) не ретраим - бесполезно; 429 (rate limit) - ретраим.
+// по умолчанию 2 попытки: каждый nextTip интерактивен (клик по доку), три раза по таймауту
+// заставляли ждать облачко до ~45 секунд
+func withRetries<T>(_ attempts: Int = 2, _ op: () async throws -> T) async throws -> T {
     var last: Error?
     for i in 1...attempts {
         do { return try await op() }
         catch let e as HTTPError where (400..<500).contains(e.status) && e.status != 429 {
             throw e
         }
+        catch is CancellationError {
+            throw CancellationError()          // отмену не ретраим и не глотаем
+        }
         catch {
             last = error
             NSLog("clippy: attempt \(i)/\(attempts) failed: \(error)")
-            if i < attempts { try? await Task.sleep(nanoseconds: UInt64(i) * 500_000_000) }  // 0.5с, 1.0с
+            // пауза 0.5с, 1.0с…; отмена задачи во время паузы прерывает цикл (не try?)
+            if i < attempts { try await Task.sleep(nanoseconds: UInt64(i) * 500_000_000) }
         }
     }
     throw last!
@@ -113,7 +130,7 @@ struct OllamaProvider: TipProvider, LLMProvider {
     let model: String
     var prompt: String = tipPrompt          // промпт для одного факта (nextTip); complete берёт свой
     var timeout: TimeInterval = networkTimeout   // батч поднимает до batchTimeout
-    var attempts: Int = 3                        // батч ставит 1: не гонять долгую генерацию заново
+    var attempts: Int = 2                        // батч ставит 1: не гонять долгую генерацию заново
 
     func nextTip() async throws -> String { try await complete(prompt) }
 
@@ -148,7 +165,7 @@ struct ClaudeProvider: TipProvider, LLMProvider {
     var attempts: Int                         // батч ставит 1: не платить за долгий запрос дважды
 
     init(apiKey: String, model: String = defaultClaudeModel, maxTokens: Int = 150,
-         prompt: String = tipPrompt, timeout: TimeInterval = networkTimeout, attempts: Int = 3) {
+         prompt: String = tipPrompt, timeout: TimeInterval = networkTimeout, attempts: Int = 2) {
         self.apiKey = apiKey
         self.model = model
         self.maxTokens = maxTokens
@@ -247,7 +264,9 @@ struct RSSProvider: TipProvider {
             req.timeoutInterval = networkTimeout
             let (data, resp) = try await tipSession.data(for: req)
             try ensureOK(resp)
-            guard let title = RSSFirstTitle().parse(data), !title.isEmpty else {
+            // случайный из свежих записей: иначе каждый клик показывал бы один и тот же
+            // первый заголовок, пока лента не обновится
+            guard let title = RSSTitles().parse(data).randomElement() else {
                 throw AssetError.missing("RSS <item><title>")
             }
             return truncateTitle(title, max: rssMaxTitle)
@@ -255,21 +274,25 @@ struct RSSProvider: TipProvider {
     }
 }
 
-// минимальный парсер: вытащить <title> первой записи ленты.
-// RSS 2.0 - это <item>, Atom - <entry>; поддерживаем оба (иначе Atom молча падал в фолбэк)
-private final class RSSFirstTitle: NSObject, XMLParserDelegate {
+// минимальный парсер: заголовки первых записей ленты (не более maxItems).
+// RSS 2.0 - это <item>, Atom - <entry>; поддерживаем оба (иначе Atom молча падал в фолбэк).
+// заголовок в <![CDATA[...]]> XMLParser отдаёт колбэком foundCDATA, а не foundCharacters -
+// без него такие ленты (часть WordPress/новостных) молча падали в локальный фолбэк.
+// не private: логику гоняет selftest
+final class RSSTitles: NSObject, XMLParserDelegate {
+    static let maxItems = 10              // хватает для «случайного свежего», дальше не парсим
     private var inItem = false
     private var inTitle = false
     private var buffer = ""
-    private var result: String?
+    private var titles: [String] = []
 
     private static func isEntry(_ el: String) -> Bool { el == "item" || el == "entry" }
 
-    func parse(_ data: Data) -> String? {
+    func parse(_ data: Data) -> [String] {
         let p = XMLParser(data: data)
         p.delegate = self
         p.parse()
-        return result
+        return titles
     }
 
     func parser(_ parser: XMLParser, didStartElement el: String, namespaceURI: String?,
@@ -282,12 +305,20 @@ private final class RSSFirstTitle: NSObject, XMLParserDelegate {
         if inTitle { buffer += s }
     }
 
+    func parser(_ parser: XMLParser, foundCDATA block: Data) {
+        if inTitle { buffer += String(data: block, encoding: .utf8) ?? "" }
+    }
+
     func parser(_ parser: XMLParser, didEndElement el: String, namespaceURI: String?,
                 qualifiedName: String?) {
         if el == "title" && inTitle {
-            result = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            let t = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { titles.append(t) }
             inTitle = false
         }
-        if Self.isEntry(el) { parser.abortParsing() }        // только первая запись
+        if Self.isEntry(el) {
+            inItem = false
+            if titles.count >= Self.maxItems { parser.abortParsing() }
+        }
     }
 }
