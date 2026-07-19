@@ -28,7 +28,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 NOTE: The BSD 3-Clause license above covers the source code of this project
-only. The bundled Clippy sprite sheet, animation timings, and sounds are
-derived from Microsoft Agent (character "Clippit") via the ClippyJS project and
-remain the intellectual property of their respective owners. They are included
-here for personal, non-commercial use. See README "Credits & assets".
+only. The bundled character assets (sprite sheets, animation timings, and
+sounds under Sources/ClippyMac/BundledAgents: Clippy/"Clippit", Merlin, Genie,
+Links, Rover - Microsoft Agent; Bonzi - Bonzi Software) are derived via the
+ClippyJS project and remain the intellectual property of their respective
+owners. They are included here for personal, non-commercial use and are NOT
+covered by this license. See README "Credits & assets".

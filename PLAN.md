@@ -24,7 +24,7 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
    │     └─ SpriteAnimator (бесконечный idle) -> dockTile.display() каждый кадр
    ├─ applicationShouldHandleReopen (левый клик по доку) -> showFact у иконки
    ├─ applicationDockMenu (правый клик) -> Показать факт / Настройки… / О программе
-   ├─ Настройки… -> NSWindow(NSHostingController(SettingsRootView: SwiftUI Form))
+   ├─ Настройки… -> NSWindow(NSHostingController(SettingsRootView: кастомный ScrollView с карточками))
    ├─ О программе -> orderFrontStandardAboutPanel (версия из Info.plist)
    └─ активити-полиси: всегда .regular (приложение всегда в доке)
       │
@@ -35,8 +35,7 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
              позиция: bubbleOrigin(mouseLocation, dockOrientation) - низ/слева/справа
                                           │
                                     TipProvider (protocol)
-                                    ├─ LocalJSONProvider    (Clippy)
-                                    ├─ AgentTipsProvider    (прочие персонажи)
+                                    ├─ AgentTipsProvider    (tips.json персонажа, вкл. встроенных)
                                     ├─ OllamaProvider       (localhost:11434)
                                     ├─ ClaudeProvider       (Anthropic API)
                                     ├─ PoolProvider         (пул на персонажа)
@@ -56,10 +55,10 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
   бесконечный idle и на каждый кадр зовёт `NSApp.dockTile.display()`
 - idle зациклен «туда-сюда»: кадры вперёд, затем назад (`playSequence`), плавнее и
   без рывка на стыке; через пару циклов - другая idle-анимация
-- левый клик по доку -> `applicationShouldHandleReopen`; якорь облачка - точный rect
-  иконки дока через Accessibility (`dockIconRect`), а без выданного доступа - фолбэк
-  на `NSEvent.mouseLocation` (курсор в этот миг на иконке). так баллон встаёт у самой
-  иконки даже когда факт вызван из меню дока, а не по позиции курсора
+- левый клик по доку -> `applicationShouldHandleReopen`; якорь облачка -
+  `NSEvent.mouseLocation` в момент клика (курсор в этот миг на иконке). вариант с
+  точным rect иконки через Accessibility удалён: системный пермишен ради пары
+  пикселей не стоил 96 строк AX-обвязки
 - правый клик -> `applicationDockMenu` (факт / жесты / выбор и рандом персонажа /
   Настройки… / О программе; Quit док добавляет сам)
 - облачко - отдельный `NSPanel` `[.borderless, .nonactivatingPanel]`, `.floating`,
@@ -80,14 +79,14 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
 - сценарий: на старте `Show`, затем бесконечный idle «туда-сюда» в иконке дока;
   `Hide` не проигрывается (иконка дока постоянна). Клик -> случайный жест -> idle
 - `branching` (вероятностный прыжок по weight) реализован в `nextFrameIndex` и
-  используется жестами; `exitBranch` в рантайме пока не задействован (idle идёт
-  линейным «туда-сюда», а не через exitBranch)
+  используется жестами; `exitBranch` не парсится вовсе - idle идёт линейным
+  «туда-сюда», лишние ключи JSON декодер игнорирует
 
 **4. Речевой баллон (`SpeechBubbleView`).** чистый SwiftUI: скруглённый
 прямоугольник + хвостик через `Path`, авто-размер под текст (`.fixedSize()`, иначе
 `NSHostingView.fittingSize` растягивает панель во весь экран), без ассетов. Хвостик
-рисуется на стороне, обращённой к доку (низ/лево/право). Висит `bubbleSeconds` и
-прячется.
+рисуется на стороне, обращённой к доку (низ/лево/право). Длительность показа
+динамическая - от длины текста (`bubbleDuration`), затем прячется.
 
 **5. Показ факта - только по клику.** периодического таймера и детекта активности
 нет (персонаж всегда виден в доке). Факт всплывает по левому клику по иконке дока
@@ -98,9 +97,10 @@ AppDelegate (чистый AppKit, точка входа в main.swift)
 ходьбы по экрану и меню-бара нет (убрано в доковом редизайне).
 
 **7. Настройки (`AppSettings`).** обёртка над `UserDefaults`: вкл/выкл, провайдер +
-его поля, звук, категории фактов Clippy, активный персонаж. Управление - в окне
-настроек (`SettingsRootView`: SwiftUI `Form` в `NSWindow`), открывается из меню
-дока («Настройки…») и из меню приложения / Cmd+,. Тумблеров «в доке / в меню-баре»
+его поля, звук, категории фактов, активный персонаж. Управление - в окне
+настроек (`SettingsRootView` в SettingsView.swift: кастомный ScrollView с
+карточками-группами по одобренному макету), открывается из меню дока
+(«Настройки…») и из меню приложения / Cmd+,. Тумблеров «в доке / в меню-баре»
 нет: приложение всегда в доке.
 - **версия:** `CFBundleShortVersionString` из Info.plist; источник - git-тег (в CI - env
   `VERSION`, локально `build-dmg.sh` берёт последний тег), показывается в «О программе»
@@ -117,11 +117,10 @@ plist удаляется, автозапуск переносится на `SMAp
 ```swift
 protocol TipProvider { func nextTip() async throws -> String }
 ```
-- `LocalJSONProvider`: встроенный `tips.json` Clippy (по категориям), случайный выбор
-- `AgentTipsProvider`: факты конкретного персонажа из `<папка>/tips.json` (плоский
-  массив или словарь по категориям); нет файла -> `throws` -> у персонажа своих фактов
-  нет, облачко не показываем. локальный провайдер выбирается по активному персонажу:
-  Clippy -> `LocalJSONProvider`, иначе -> `AgentTipsProvider`
+- `AgentTipsProvider`: факты активного персонажа из `<папка>/tips.json` (плоский
+  массив или словарь по категориям; встроенные, включая Clippy, идут тем же путём -
+  из папки бандла). нет файла -> `throws` -> у персонажа своих фактов нет, облачко
+  не показываем; сняты все категории -> `throws` -> облачко объясняет
 - `OllamaProvider` / `ClaudeProvider` (`LLMProvider.complete`): генерируют факт по
   промпту. два режима на провайдер (`LLMConfig`): живой запрос на клик или заранее
   сгенерированный пул. промпт собирается из полей (персона/ограничения/длина) и
@@ -139,40 +138,43 @@ protocol TipProvider { func nextTip() async throws -> String }
 
 ## структура проекта
 
-SPM executable (`Package.swift`, swift-tools 5.9, macOS 13+), без xcodeproj.
-Ресурсы через `.process("Resources")`. Сборка: `swift run` (dev),
+SPM executable (`Package.swift`, swift-tools 5.9, macOS 14+), без xcodeproj.
+Ресурсы через `.copy("BundledAgents")`. Сборка: `swift run` (dev),
 `scripts/build-dmg.sh` (.app + .dmg).
 
 ```
 clippy/
-  Package.swift                    # SPM executable, resources: .process("Resources")
+  Package.swift                    # SPM executable, resources: .copy("BundledAgents")
   PLAN.md  README.md  RELEASING.md  CONTRIBUTING.md  LICENSE   # README только на русском
-  scripts/build-dmg.sh             # release -> .app (Info.plist, иконка, типы документов) -> ad-hoc -> .dmg
+  scripts/build-dmg.sh             # release -> .app (Info.plist, иконка, типы документов) -> ad-hoc -> smoke selftest -> .dmg
   scripts/import-clippyjs.py       # персонаж ClippyJS -> папка Agents (map.png+agent.js+звуки)
   .github/workflows/ci.yml         # swift build + CLIPPY_SELFTEST=1 + release
-  .github/workflows/release.yml    # тег v* -> сборка .dmg -> GitHub Release (версия из тега)
+  .github/workflows/release.yml    # тег v* -> сборка .dmg -> GitHub Release (версия из тега, SHA256 в заметках)
   assets/AppIcon.png .icns         # иконка приложения
   Sources/ClippyMac/
     main.swift                     # точка входа: self-check, затем NSApplication+AppDelegate
-    ClippyMacApp.swift             # AppDelegate (док-иконка/клик/меню/About) + ClippyControls/SettingsRootView
-    ClippyPanel.swift              # конфиг NSPanel облачка + доковая геометрия (ориентация, bubbleOrigin, dockEdgeAnchor)
-    DockAccessibility.swift        # rect иконки дока через Accessibility (точный якорь облачка)
+    ClippyMacApp.swift             # AppDelegate: док-иконка/клик/меню/About/окна/генерация пула
+    ClippyPanel.swift              # конфиг NSPanel облачка + доковая геометрия (ориентация, bubbleOrigin)
     SpriteAnimator.swift           # плеер кадров + branching + звук + композит оверлеев + onRender
-    ClippyAgent.swift              # модели + парсинг agent.json (бандл/папка) + кроп кадра
+    ClippyAgent.swift              # модели + парсинг agent.json + кроп кадра
     SpeechBubbleView.swift         # SwiftUI баллон с хвостиком в сторону дока
     Settings.swift                 # AppSettings над UserDefaults (+ LLMConfig на провайдера)
-    AgentLibrary.swift             # обнаружение персонажей (встроенный + папка Agents)
-    TipProvider.swift              # protocol + LocalJSONProvider + AgentTipsProvider
+    SettingsView.swift             # SettingsRootView: окно настроек (палитра P + атомы вёрстки)
+    FAQView.swift                  # окно «Частые вопросы» (в стиле настроек)
+    Keychain.swift                 # хранение ключа Claude в Keychain
+    AgentLibrary.swift             # обнаружение персонажей (бандл + папка Agents)
+    TipProvider.swift              # protocol + AgentTipsProvider (факты персонажа)
+    ProviderFactory.swift          # сборка провайдеров из настроек (tip- и LLM-фабрики)
     NetworkProviders.swift         # Ollama / Claude / RSS / «В этот день» + батч-генерация
     PoolStore.swift                # пул заранее сгенерированных фактов на персонажа + PoolProvider
     LoginItem.swift                # автозапуск (SMAppService + миграция со старого LaunchAgent)
     UpdateCheck.swift              # проверка обновлений через GitHub Releases (авто раз в сутки + ручная)
     SelfCheck.swift                # CLIPPY_SELFTEST=1: проверка ассетов без GUI
-    Resources/
-      clippy_map.png               # спрайтшит из ClippyJS
-      clippy_agent.json            # тайминги кадров (конверт из agent.js)
-      tips.json                    # локальные факты/советы
-      sounds/1.mp3 … 15.mp3        # озвучка анимаций
+    BundledAgents/                 # персонажи в комплекте, единый формат папки
+      Clippy/  Merlin/  Genie/  Bonzi/  Links/  Rover/
+        agent.json  map.png        # тайминги кадров + спрайтшит (из ClippyJS)
+        tips.json                  # факты персонажа (у Clippy ~700, по категориям)
+        sounds/*.mp3               # озвучка анимаций (опционально)
 ```
 
 ## этапы и декомпозиция (MVP -> расширения)
@@ -395,15 +397,15 @@ Homebrew-каст). по функционалу мы уже шире (факты
 ~~редизайн окна настроек~~ сделано: `SettingsRootView` перенесён в SwiftUI по одобренному
 макету - группы-карточки (Основное / Персонаж /
 Факты / Поведение), нативный SF, янтарный акцент под жёлтую скрепку, спрайты персонажей,
-светлая/тёмная тема. Осталось (TODO): приветственное окно первого запуска из 6 шагов
-(интро -> доступ Accessibility -> персонаж -> источник -> базовые тумблеры -> готово),
+светлая/тёмная тема. В бэклоге: приветственное окно первого запуска
+(интро -> персонаж -> источник -> базовые тумблеры -> готово),
 переоткрываемое из настроек, + флаг «первый запуск» в `AppSettings`.
 
 сделано после MVP: окно настроек (AppKit `NSWindow` + SwiftUI `Form`), панель
 «О программе» с версией, версионирование `1.0.0`; поля провайдеров в окне настроек
 (Ollama URL/модель, RSS, ключ Claude - в Keychain); фолбэк-цепочка провайдеров
-(выбранный -> локальный); категории локальных фактов (6 тем, тумблеры, фильтр в
-`LocalJSONProvider`, `tips.json` по категориям); README (русский); импорт
+(выбранный -> локальный); категории локальных фактов (7 тем, чипы, фильтр в
+`AgentTipsProvider`, `tips.json` по категориям); README (русский); импорт
 персонажей ClippyJS + композит оверлеев; набор персонажей в комплекте (5 шт.);
 динамический размер облачка под длину факта. README теперь только на русском
 (английский удалён, `README.ru.md` -> `README.md`); полный i18n - в бэклоге.
@@ -445,8 +447,9 @@ Homebrew-каст). по функционалу мы уже шире (факты
 - таймаут батч-генерации 180с и 1 попытка (Ollama со `stream:false` отдаёт всё разом,
   15с не хватало); `RSSProvider` понимает и Atom (`<entry>`), не только RSS 2.0
 - облачко показывается дольше для длинного текста; кнопка «Отмена» на генерации;
-  пустой пул подсказывает в облачке, а не молчит; осиротевшие пулы чистятся при
-  `reloadAgents`; ошибка генерации - sheet на окне настроек
+  пустой пул подсказывает в облачке, а не молчит; ошибка генерации - sheet на окне
+  настроек. пулы пропавших персонажей не удаляются (папку могли вынести временно,
+  генерация платная - осиротевший JSON безвреден)
 - лицензия проекта переведена на **BSD-3-Clause** (было MIT); версия теперь из
   git-тега (первый публичный релиз - `v1.0.0`)
 - `swift run` (голый бинарь без Info.plist): ATS режет Ollama по http; https-источники
@@ -460,7 +463,7 @@ Homebrew-каст). по функционалу мы уже шире (факты
 - генерация: Codex `image_gen` (нативный tool, через `codex exec`, без API-ключей)
 - углы: квадратные углы генерации срезаны в прозрачность squircle-маской ImageMagick
   (`roundrectangle … radius 300`, `-compose CopyOpacity`) - full-bleed скругление
-- собрано в `assets/AppIcon.png` (1024) и `assets/AppIcon.icns` (все размеры);
+- собрано в `assets/AppIcon.png` (256, только для шапки README) и `assets/AppIcon.icns` (все размеры);
   подключена в `build-dmg.sh` (`CFBundleIconFile`) и в шапку README
 - при переделке: сгенерировать концепт через Codex `image_gen`, squircle-маска
   ImageMagick (`-compose CopyOpacity`), iconset через `magick -resize` -> `iconutil -c icns`
@@ -475,11 +478,12 @@ MVP, UI (окно настроек/About/версия), ~700 локальных 
 подменю жестов/персонажей, рандом), спонтанные жесты, кормление файлами + режим
 корзины - готовы.
 
-**активная задача:** приветственное окно первого запуска (онбординг) по одобренному
-макету + флаг «первый запуск» в `AppSettings`
-(сам редизайн окна настроек уже перенесён в SwiftUI - `SettingsRootView`).
+**активной задачи нет.**
 
-**на потом:** ничего критичного. Отдельные факты под персонажей уже есть (у всех пяти
+**бэклог:** приветственное окно первого запуска (онбординг) по одобренному макету +
+флаг «первый запуск» в `AppSettings` - в коде пока не начато.
+
+**на потом:** ничего критичного. Отдельные факты под персонажей уже есть (у всех
 встроенных - свой `tips.json`; кастомный агент кладёт свой). Подпись Developer ID /
 нотаризация, английская локализация и разбор ассетов Microsoft - осознанно не делаем
 (решение владельца, июль 2026).

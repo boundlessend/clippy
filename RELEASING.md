@@ -9,17 +9,21 @@
 1. убедиться, что `main` зелёный (CI прошёл)
 2. поставить тег и запушить:
    ```bash
-   git tag -a v1.0.0 -m "Clippy Mac 1.0.0"
-   git push origin v1.0.0
+   git tag -a v1.0.5 -m "Clippy Mac 1.0.5"
+   git push origin v1.0.5
    ```
-3. на macOS-раннере соберётся `ClippyMac.dmg`, создастся Release с `.dmg` и инструкцией
-   по Gatekeeper. проверить страницу Releases
+3. на macOS-раннере соберётся `ClippyMac.dmg`, создастся Release с `.dmg`, SHA256
+   и инструкцией по Gatekeeper. проверить страницу Releases
 
 ## локально (запасной путь, без CI)
 
+тот же блок установки/Gatekeeper, что кладёт CI (`--notes-file`), иначе релиз
+выйдет без инструкции:
+
 ```bash
-VERSION=1.0.0 ./scripts/build-dmg.sh
-gh release create v1.0.0 build/ClippyMac.dmg --title "Clippy Mac v1.0.0" --generate-notes
+VERSION=1.0.5 ./scripts/build-dmg.sh
+gh release create v1.0.5 build/ClippyMac.dmg --title "Clippy Mac v1.0.5" \
+  --notes-file .github/release-notes.md
 ```
 
 ## подпись и обновления
